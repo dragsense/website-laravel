@@ -39,9 +39,16 @@ return [
         'public' => [
             'driver' => 'local',
             'root' => storage_path('app/public'),
-            'url' => env('APP_URL').'/storage',
+            'url' => env('APP_URL') . '/storage',
             'visibility' => 'public',
             'throw' => false,
+        ],
+
+        'autocode' => [
+            'driver' => 'local',
+            'root' => base_path('app/AutoCode/dist'),
+            'url' => env('APP_URL') . '/',
+            'visibility' => 'public',
         ],
 
         's3' => [
@@ -71,6 +78,7 @@ return [
 
     'links' => [
         public_path('storage') => storage_path('app/public'),
+        public_path('autocode') => base_path('dist'),
     ],
 
 ];
