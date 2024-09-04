@@ -360,7 +360,7 @@ class ThemeServices
      */
     public function createVariable(array $variableBody): array
     {
-        $variables = $this->getJsonContent($this->dataDir . '/variables.json');
+        $variables = $this->getJsonContent('variables.json');
 
         if (collect($variables)->contains('name', $variableBody['name'])) {
             throw new ApiError('Name already taken', 400);
@@ -374,7 +374,7 @@ class ThemeServices
             '_uid' => $uid,
         ]);
 
-        $this->putJsonContent($this->dataDir . '/variables.json', $variables);
+        $this->putJsonContent('variables.json', $variables);
 
         return $variables[$uid];
     }
@@ -389,7 +389,7 @@ class ThemeServices
      */
     public function updateVariable(string $uid, array $variableBody): array
     {
-        $variables = $this->getJsonContent($this->dataDir . '/variables.json');
+        $variables = $this->getJsonContent('variables.json');
 
         if (!isset($variables[$uid])) {
             throw new ApiError('Variable not found', 404);
@@ -404,7 +404,7 @@ class ThemeServices
         $variable = '--var-' . strtolower(str_replace(' ', '-', $variableBody['name'])) . '-variable';
         $variables[$uid] = array_merge($variables[$uid], $variableBody, ['variable' => $variable]);
 
-        $this->putJsonContent($this->dataDir . '/variables.json', $variables);
+        $this->putJsonContent('variables.json', $variables);
 
         return $variables[$uid];
     }
@@ -418,7 +418,7 @@ class ThemeServices
      */
     public function getVariables(array $filter, array $options): array
     {
-        $variables = $this->getJsonContent($this->dataDir . '/variables.json');
+        $variables = $this->getJsonContent('variables.json');
         $variables = array_values($variables);
 
         return $this->paginate($variables, $filter, $options);
@@ -433,14 +433,14 @@ class ThemeServices
      */
     public function deleteVariable(string $uid): string
     {
-        $variables = $this->getJsonContent($this->dataDir . '/variables.json');
+        $variables = $this->getJsonContent('variables.json');
 
         if (!isset($variables[$uid])) {
             throw new ApiError('Variable not found', 404);
         }
 
         unset($variables[$uid]);
-        $this->putJsonContent($this->dataDir . '/variables.json', $variables);
+        $this->putJsonContent('variables.json', $variables);
 
         return $uid;
     }
@@ -454,7 +454,7 @@ class ThemeServices
      */
     public function createIcon(array $iconBody): array
     {
-        $icons = $this->getJsonContent($this->dataDir . '/icons.json');
+        $icons = $this->getJsonContent('icons.json');
 
         if (collect($icons)->contains('name', $iconBody['name'])) {
             throw new ApiError('Name already taken', 400);
@@ -468,7 +468,7 @@ class ThemeServices
             '_uid' => $uid,
         ]);
 
-        $this->putJsonContent($this->dataDir . '/icons.json', $icons);
+        $this->putJsonContent('icons.json', $icons);
 
         return $icons[$uid];
     }
@@ -483,7 +483,7 @@ class ThemeServices
      */
     public function updateIcon(string $uid, array $iconBody): array
     {
-        $icons = $this->getJsonContent($this->dataDir . '/icons.json');
+        $icons = $this->getJsonContent('icons.json');
 
         if (!isset($icons[$uid])) {
             throw new ApiError('Icon not found', 404);
@@ -498,7 +498,7 @@ class ThemeServices
         $variable = '--var-' . strtolower(str_replace(' ', '-', $iconBody['name'])) . '-icon';
         $icons[$uid] = array_merge($icons[$uid], $iconBody, ['variable' => $variable]);
 
-        $this->putJsonContent($this->dataDir . '/icons.json', $icons);
+        $this->putJsonContent('icons.json', $icons);
 
         return $icons[$uid];
     }
@@ -512,7 +512,7 @@ class ThemeServices
      */
     public function getIcons(array $filter, array $options): array
     {
-        $icons = $this->getJsonContent($this->dataDir . '/icons.json');
+        $icons = $this->getJsonContent('icons.json');
         $icons = array_values($icons);
 
         return $this->paginate($icons, $filter, $options);
@@ -527,7 +527,7 @@ class ThemeServices
      */
     public function deleteIcon(string $uid): string
     {
-        $icons = $this->getJsonContent($this->dataDir . '/icons.json');
+        $icons = $this->getJsonContent('icons.json');
 
         if (!isset($icons[$uid])) {
             throw new ApiError('Icon not found', 404);
@@ -539,7 +539,7 @@ class ThemeServices
         }
 
         unset($icons[$uid]);
-        $this->putJsonContent($this->dataDir . '/icons.json', $icons);
+        $this->putJsonContent('icons.json', $icons);
 
         return $uid;
     }
@@ -553,7 +553,7 @@ class ThemeServices
      */
     public function createStyle(array $styleBody): array
     {
-        $styles = $this->getJsonContent($this->dataDir . '/styles.json');
+        $styles = $this->getJsonContent('styles.json');
 
         if (collect($styles)->contains('name', $styleBody['name'])) {
             throw new ApiError('Name already taken', 400);
@@ -567,7 +567,7 @@ class ThemeServices
             '_uid' => $uid,
         ]);
 
-        $this->putJsonContent($this->dataDir . '/styles.json', $styles);
+        $this->putJsonContent('styles.json', $styles);
 
         return $styles[$uid];
     }
@@ -582,7 +582,7 @@ class ThemeServices
      */
     public function updateStyle(string $uid, array $styleBody): array
     {
-        $styles = $this->getJsonContent($this->dataDir . '/styles.json');
+        $styles = $this->getJsonContent('styles.json');
 
         if (!isset($styles[$uid])) {
             throw new ApiError('Style not found', 404);
@@ -597,7 +597,7 @@ class ThemeServices
         $variable = '--var-' . strtolower(str_replace(' ', '-', $styleBody['name'])) . '-style';
         $styles[$uid] = array_merge($styles[$uid], $styleBody, ['variable' => $variable]);
 
-        $this->putJsonContent($this->dataDir . '/styles.json', $styles);
+        $this->putJsonContent('styles.json', $styles);
 
         return $styles[$uid];
     }
@@ -611,14 +611,14 @@ class ThemeServices
      */
     public function deleteStyle(string $uid): string
     {
-        $styles = $this->getJsonContent($this->dataDir . '/styles.json');
+        $styles = $this->getJsonContent('styles.json');
 
         if (!isset($styles[$uid])) {
             throw new ApiError('Style not found', 404);
         }
 
         unset($styles[$uid]);
-        $this->putJsonContent($this->dataDir . '/styles.json', $styles);
+        $this->putJsonContent('styles.json', $styles);
 
         return $uid;
     }
@@ -632,7 +632,7 @@ class ThemeServices
     public function saveStyle(array $styleBody): array
     {
         $styles = $styleBody['styles'] ?? [];
-        $this->putJsonContent($this->dataDir . '/style.json', $styles);
+        $this->putJsonContent('style.json', $styles);
         return ['status' => true];
     }
 
@@ -644,7 +644,7 @@ class ThemeServices
      */
     public function getStyle(string $_id, callable $streamCallback)
     {
-        $styles = $this->getJsonContent($this->dataDir . '/style.json');
+        $styles = $this->getJsonContent('style.json');
 
         if (!empty($styles)) {
             $jsonData = json_encode(['_id' => $_id, 'elements' => $styles]);
@@ -666,7 +666,7 @@ class ThemeServices
     public function saveAnimations(array $animationsBody): array
     {
         $animations = $animationsBody['styles'] ?? [];
-        $this->putJsonContent($this->dataDir . '/animation.json', $animations);
+        $this->putJsonContent('animation.json', $animations);
         return ['status' => true];
     }
 
@@ -678,7 +678,7 @@ class ThemeServices
      */
     public function getAnimations(string $_id, callable $streamCallback)
     {
-        $animations = $this->getJsonContent($this->dataDir . '/animation.json');
+        $animations = $this->getJsonContent('animation.json');
 
         if (!empty($animations)) {
             $jsonData = json_encode(['_id' => $_id, 'elements' => $animations]);
@@ -698,7 +698,7 @@ class ThemeServices
      */
     public function getAnimationsNames(): array
     {
-        $animations = $this->getJsonContent($this->dataDir . '/animation.json');
+        $animations = $this->getJsonContent('animation.json');
         return Utils::generateAnimationNames($animations);
     }
 
@@ -733,8 +733,8 @@ class ThemeServices
      */
     public function getAnimationsCss(): array
     {
-        $animations = $this->getJsonContent($this->dataDir . '/animation.json');
-        $setting = $this->getJsonContent($this->dataDir . '/setting.json');
+        $animations = $this->getJsonContent('animation.json');
+        $setting = $this->getJsonContent('setting.json');
 
         $css = Utils::generateAnimations($animations);
         $settingData = $setting;
@@ -751,10 +751,10 @@ class ThemeServices
     {
         $css = $this->getFileContent($this->dataDir . '/customStyle.css');
 
-        $styles = $this->getJsonContent($this->dataDir . '/style.json');
+        $styles = $this->getJsonContent('style.json');
         $css .= Utils::generateElementsCss($styles);
 
-        $animations = $this->getJsonContent($this->dataDir . '/animation.json');
+        $animations = $this->getJsonContent('animation.json');
         $css .= Utils::generateAnimations($animations);
 
         return ['css' => $css];

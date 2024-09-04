@@ -54,6 +54,8 @@ class FormServices
                     "_uid" => "0",
                     "tagName" => "div",
                     "type" => "layout",
+                    "name" => 'Form Root Element',
+
                     "layout" => "root",
                     "nodeValue" => "",
                     "childNodes" => []

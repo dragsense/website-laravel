@@ -25,6 +25,7 @@ class ComponentServices
                     "_uid" => "0",
                     "tagName" => "div",
                     "type" => "layout",
+                    "name" => 'Compnonent Root Element',
                     "layout" => "root",
                     "nodeValue" => "",
                     "childNodes" => []

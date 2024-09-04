@@ -6,6 +6,7 @@ use DragSense\AutoCode\Http\Exceptions\ApiError;
 use DragSense\AutoCode\Models\Collection;
 use DragSense\AutoCode\Models\Component;
 use DragSense\AutoCode\Models\Form;
+use DragSense\AutoCode\Models\Layout;
 use DragSense\AutoCode\Models\Page;
 use DragSense\AutoCode\Utils\Utils;
 use Illuminate\Support\Facades\File;
@@ -111,9 +112,16 @@ class SettingServices
 
         if ($type === 'page') {
             $page = Page::find($id);
+        } elseif ($type === 'component') {
+            $page = Component::find($id);
         } elseif ($type === 'collection') {
             $page = Collection::find($id);
+        } elseif ($type === 'form') {
+            $page = Form::find($id);
+        } elseif ($type === 'layout') {
+            $page = Layout::find($id);
         }
+
 
 
         if (!$page) {
@@ -122,7 +130,6 @@ class SettingServices
 
         try {
 
-            $page->populatedLayout = $page->populatedLayouts;
             $page->populatedImage = $page->populatedImages;
 
             $pages = [];
@@ -139,23 +146,25 @@ class SettingServices
 
 
             $settingData = [];
+            // Initialize relationships array
+            $relationships = [];
 
-            $pages[$page->_id] = [
-                'elements' => $page->elements ?? [],
+            // Check if populatedRelationships exists and is not empty
+            if (!empty($page->populatedRelationships)) {
+                foreach ($page->populatedRelationships as $rel) {
+                    $relationships[$rel->_id] = $rel->name;
+                }
+            }
 
-                'pageSetting' => [
-                    '_id' => $page->id,
-                    'setting' => $page->setting,
-                    'states' => $page->states,
-                    'name' => $page->name,
-                    'slug' => $page->slug,
-                    'creator' => $page->creator,
-                    'createdAt' => $page->created_at,
-                    'url' => $page->url,
-                    'host' => $host,
-                    ...$settingData,
-                ],
-            ];
+            // Initialize populatedRelationships
+            $populatedRelationships = [];
+
+            // Check if populatedRelationships is an array
+            if (is_array($page->populatedRelationships)) {
+                foreach ($page->populatedRelationships as $collection) {
+                    $populatedRelationships[$collection->_id] = [$collection];
+                }
+            } 
 
             $components = $page->components ?? [];
             $this->loadComponents($components, $pages, $style, $host, $withCss);
@@ -163,45 +172,98 @@ class SettingServices
             $forms = $page->forms ?? [];
             $this->loadForms($forms, $pages, $style, $withCss);
 
-           
 
-            $layout = $page->populatedLayout[0]->components ?? null;
-            $LayoutComponents = [];
+
+            $mainPageData = [
+                'pageSetting' => [
+                    '_id' => $page->_id,
+                    'setting' => $page->setting,
+                    'states' => $page->states,
+                    'name' => $page->name,
+                    'slug' => $page->slug,
+                    'relationships' =>  $relationships,
+                    'populatedRelationships' => $populatedRelationships,
+                    'creator' => $page->creator,
+                    'createdAt' => $page->createdAt,
+                    'url' => $page->url,
+                    'host' => $host,
+                    ...$settingData,
+                ],
+            ];
+
+            $defaultElements = [
+                '0' => [
+                    '_uid' => '0',
+                    'tagName' => 'div',
+                    'type' => 'layout',
+                    'layout' => 'root',
+                    'nodeValue' => '',
+                    'childNodes' => [],
+                ],
+            ];
+
+            // Set default page elements
+            $pageElements = $page->elements ?? $defaultElements;
 
             // Check if layout exists
+            $layout = Layout::find($page->layout);
+
             if ($layout) {
-                // If top layout exists, convert it to string and store it in LayoutComponents
-                if (isset($layout->top)) {
-                    $LayoutComponents[0] = (string) $layout->top;
-                }
-                // If bottom layout exists, convert it to string and store it in LayoutComponents
-                if (isset($layout->bottom)) {
-                    $LayoutComponents[1] = (string) $layout->bottom;
+                // If CSS is needed, generate it
+                if ($withCss) {
+                    $styles = $layout->styles ?? [];
+                    $styleCss = Utils::generateElementsCss($styles);
+                    $style['css'] = array_merge($style['css'], [$styleCss]);
                 }
 
+                // Load layout components and forms
+                $components = $layout->components ?? [];
+                $forms = $layout->forms ?? [];
+
                 $this->loadComponents($components, $pages, $style, $host, $withCss);
+                $this->loadForms($forms, $pages, $style, $withCss);
+
+                // Initialize layout elements
+                $layoutElements = $layout->elements ?? $defaultElements;
+
+                // Adjust main layout
+                if (isset($layoutElements[$layout->main])) {
+                    $layoutElements[$layout->main]['childNodes'][] = 'main';
+                } else {
+                    $layoutElements['0']['childNodes'][] = 'main';
+                }
+
+                // Update the main element in page elements
+                $pageElements['main'] = $pageElements['0'];
+                unset($pageElements['0']);
+
+                // Merge layout elements with page elements
+                $pages[$page->_id] = array_merge([
+                    'elements' => array_merge($layoutElements, $pageElements),
+                ], $mainPageData);
+            } else {
+                // No layout, just use page elements
+                $pages[$page->_id] = array_merge([
+                    'elements' => $pageElements,
+                ], $mainPageData);
             }
 
             $mergedData = array_merge(
                 $style,
                 [
                     'pages' => $pages,
-                    'layout' => [
-                        'top' => $LayoutComponents[0] ?? null,
-                        'bottom' => $LayoutComponents[1] ?? null,
-                    ],
                 ]
             );
 
-
-
             return $mergedData;
+
         } catch (\Exception $e) {
             // Log the error and rethrow it
             \Log::error('An unexpected error occurred:', ['exception' => $e]);
             throw new ApiError('An unexpected error occurred', 500);
         }
     }
+
 
     public function loadComponents(array $components, &$pages, &$style, $host, $withCss)
     {
@@ -219,6 +281,8 @@ class SettingServices
             $pages[$component->_id] = [
                 'elements' => $component->elements ?? [],
                 'states' => $component->states ?? [],
+                'events' => $component->events ?? [],
+                'type' => $component->type ?? 'component',
             ];
 
 
@@ -232,8 +296,8 @@ class SettingServices
 
             $parent = $this->getParent($component, $pages);
             //if ($parent) 
-                //$this->handleAttachedComponent($component, $parent, $pages, $host);
-            
+            //$this->handleAttachedComponent($component, $parent, $pages, $host);
+
             $innerComponents = $component->components ?? [];
 
             $this->loadComponents($innerComponents, $pages, $style, $host, $withCss);
@@ -257,6 +321,8 @@ class SettingServices
             $pages[$form->_id] = [
                 'elements' => $form->elements ?? [],
                 'states' => $form->states ?? [],
+                'type' => $component->type ?? 'form',
+                'setting' => $component->setting ?? [],
             ];
 
             if ($withCss) {
@@ -323,6 +389,8 @@ class SettingServices
             $page = Collection::find($id);
         } elseif ($type === 'form') {
             $page = Form::find($id);
+        } elseif ($type === 'layout') {
+            $page = Layout::find($id);
         }
 
         if (!$page) {
@@ -336,7 +404,7 @@ class SettingServices
             $page->populatedImage = $page->populatedImages;
 
             $doc = $this->prepareDocument($page);
-
+            $doc['type'] = $type;
             $doc['host'] = $host;
 
             $loaded[$page->_id] = true;
@@ -347,7 +415,7 @@ class SettingServices
                     $doc['props'] = $parent->states;
             }
 
-     
+
 
             $streamCallback(json_encode($doc) . "\n");
 
@@ -372,413 +440,415 @@ class SettingServices
         }
     }
 
-/**
- * Recursively loads and streams the components and their dependencies.
- *
- * @param array $components List of component IDs to load.
- * @param array $loaded List of already loaded components to avoid duplication.
- * @param callable $streamCallback Callback function to stream the JSON data.
- */
-public function loadFullComponents(array &$components, array &$loaded, &$streamCallback)
-{
-    foreach ($components as $componentId) {
-        // Find the component by ID
-        $component = Component::find($componentId);
+    /**
+     * Recursively loads and streams the components and their dependencies.
+     *
+     * @param array $components List of component IDs to load.
+     * @param array $loaded List of already loaded components to avoid duplication.
+     * @param callable $streamCallback Callback function to stream the JSON data.
+     */
+    public function loadFullComponents(array &$components, array &$loaded, &$streamCallback)
+    {
+        foreach ($components as $componentId) {
+            // Find the component by ID
+            $component = Component::find($componentId);
 
-        // Check if component exists and hasn't been loaded yet
-        if ($component && !isset($loaded[$componentId])) {
-            $loaded[$componentId] = true;
+            // Check if component exists and hasn't been loaded yet
+            if ($component && !isset($loaded[$componentId])) {
+                $loaded[$componentId] = true;
 
-            // Prepare the document
-            $doc = $this->prepareDocument($component);
+                // Prepare the document
+                $doc = $this->prepareDocument($component);
 
-            // Convert document to JSON and push to stream
-            $chunkStr = json_encode($doc) . "\n";
-            $streamCallback($chunkStr);
+                // Convert document to JSON and push to stream
+                $chunkStr = json_encode($doc) . "\n";
+                $streamCallback($chunkStr);
 
-            // Recursively load attached collection and inner components
-            $collectionId = $doc['attached'] ?? null;
-            if ($collectionId) {
-                $this->loadFullCollection($collectionId, $loaded, $streamCallback);
+                // Recursively load attached collection and inner components
+                $collectionId = $doc['attached'] ?? null;
+                if ($collectionId) {
+                    $this->loadFullCollection($collectionId, $loaded, $streamCallback);
+                }
+
+                $innerComponents = $doc['components'] ?? [];
+                $this->loadFullComponents($innerComponents, $loaded, $streamCallback);
+
+                $innerForms = $doc['forms'] ?? [];
+                $this->loadFullComponents($innerForms, $loaded, $streamCallback);
             }
-
-            $innerComponents = $doc['components'] ?? [];
-            $this->loadFullComponents($innerComponents, $loaded, $streamCallback);
-
-            $innerForms = $doc['forms'] ?? [];
-            $this->loadFullComponents($innerForms, $loaded, $streamCallback);
         }
     }
-}
 
-/**
- * Recursively loads and streams the forms and their components.
- *
- * @param array $forms List of form IDs to load.
- * @param array $loaded List of already loaded forms to avoid duplication.
- * @param callable $streamCallback Callback function to stream the JSON data.
- */
-public function loadFullForms(array &$forms, array &$loaded, &$streamCallback)
-{
-    foreach ($forms as $formId) {
-        // Find the form by ID
-        $form = Form::find($formId);
+    /**
+     * Recursively loads and streams the forms and their components.
+     *
+     * @param array $forms List of form IDs to load.
+     * @param array $loaded List of already loaded forms to avoid duplication.
+     * @param callable $streamCallback Callback function to stream the JSON data.
+     */
+    public function loadFullForms(array &$forms, array &$loaded, &$streamCallback)
+    {
+        foreach ($forms as $formId) {
+            // Find the form by ID
+            $form = Form::find($formId);
 
-        // Check if form exists and hasn't been loaded yet
-        if ($form && !isset($loaded[$formId])) {
-            $loaded[$formId] = true;
+            // Check if form exists and hasn't been loaded yet
+            if ($form && !isset($loaded[$formId])) {
+                $loaded[$formId] = true;
 
-            // Prepare the document
-            $doc = $this->prepareDocument($form);
+                // Prepare the document
+                $doc = $this->prepareDocument($form);
 
-            // Convert document to JSON and push to stream
-            $chunkStr = json_encode($doc) . "\n";
-            $streamCallback($chunkStr);
+                // Convert document to JSON and push to stream
+                $chunkStr = json_encode($doc) . "\n";
+                $streamCallback($chunkStr);
 
-            // Recursively load inner components of the form
-            $innerComponents = $doc['components'] ?? [];
-            $this->loadFullComponents($innerComponents, $loaded, $streamCallback);
+                // Recursively load inner components of the form
+                $innerComponents = $doc['components'] ?? [];
+                $this->loadFullComponents($innerComponents, $loaded, $streamCallback);
+            }
         }
     }
-}
 
-/**
- * Loads and streams a collection by its ID, including its setting and populated images.
- *
- * @param string $collectionId The ID of the collection to load.
- * @param array $loaded List of already loaded collections to avoid duplication.
- * @param callable $streamCallback Callback function to stream the JSON data.
- */
-public function loadFullCollection(string $collectionId, array &$loaded, &$streamCallback)
-{
-    // Check if collection ID is valid and hasn't been loaded yet
-    if ($collectionId && !isset($loaded[$collectionId])) {
-        $loaded[$collectionId] = true;
+    /**
+     * Loads and streams a collection by its ID, including its setting and populated images.
+     *
+     * @param string $collectionId The ID of the collection to load.
+     * @param array $loaded List of already loaded collections to avoid duplication.
+     * @param callable $streamCallback Callback function to stream the JSON data.
+     */
+    public function loadFullCollection(string $collectionId, array &$loaded, &$streamCallback)
+    {
+        // Check if collection ID is valid and hasn't been loaded yet
+        if ($collectionId && !isset($loaded[$collectionId])) {
+            $loaded[$collectionId] = true;
 
-        // Define the fields to select
-        $projection = [
-            'states',
-            'relationships',
-            '_states',
-            'published',
-            'type',
-            'setting',
-            'created_at',
-            'creator',
-            'url',
-            'slug',
-            'name',
-            '_id'
+            // Define the fields to select
+            $projection = [
+                'states',
+                'relationships',
+                '_states',
+                'published',
+                'type',
+                'setting',
+                'created_at',
+                'creator',
+                'url',
+                'slug',
+                'name',
+                '_id'
+            ];
+
+            // Find the collection by ID with the specified projection
+            $collection = Collection::select($projection)->find($collectionId);
+
+            if ($collection) {
+                // Update collection settings with populated images and relationships
+                $setting = $collection->setting;
+                $setting["populatedImage"] = $collection->populatedImages;
+                $collection->setting = $setting;
+                $collection->populatedRelationships = $collection->relations;
+
+                // Prepare the document and push to stream
+                $doc = $this->prepareDocument($collection);
+                $streamCallback(json_encode($doc) . "\n");
+            }
+        }
+    }
+
+    /**
+     * Retrieves the default value based on the type of trigger.
+     *
+     * @param string $type The type of trigger (STATES or PROPS).
+     * @param string $key The key to look up.
+     * @param array $states The states array.
+     * @param array $props The properties array.
+     * @param mixed $value The default value if not found in states or props.
+     * @param mixed $host The host parameter for additional context.
+     * @return mixed The resolved default value.
+     */
+    protected function getDefaultValue($type, $key, $states, $props, $value, $host)
+    {
+        switch ($type) {
+            case 'STATES':
+                return Utils::getStateValue($key, $states, $host);
+            case 'PROPS':
+                return Utils::getStateValue($key, $props, $host);
+            default:
+                return $value;
+        }
+    }
+
+    /**
+     * Creates a filter object with computed default values.
+     *
+     * @param array $filter The filter configuration.
+     * @param array $states The states array.
+     * @param array $props The properties array.
+     * @param mixed $host The host parameter for additional context.
+     * @return array The created filter object.
+     */
+    protected function createFilterObject($filter, $states, $props, $host)
+    {
+        $type = $filter['triggerType'];
+        $key = $filter['triggerKey'];
+        $value = $filter['defaultValue'];
+
+        // Compute the default value based on the trigger type
+        $defaultValue = $this->getDefaultValue($type, $key, $states, $props, $value, $host);
+
+        return [
+            'filterKey' => array_merge([$filter['type']], $filter['filterKey']),
+            'defaultValue' => $defaultValue ?? ''
         ];
+    }
 
-        // Find the collection by ID with the specified projection
-        $collection = Collection::select($projection)->find($collectionId);
+    /**
+     * Processes a list of filters to create filter objects.
+     *
+     * @param array|null $filters The list of filters.
+     * @param array $states The states array.
+     * @param array $props The properties array.
+     * @param mixed $host The host parameter for additional context.
+     * @return array The list of processed filter objects.
+     */
+    protected function getFilters($filters, $states, $props, $host)
+    {
+        $resultFilters = [];
 
-        if ($collection) {
-            // Update collection settings with populated images and relationships
-            $setting = $collection->setting;
-            $setting["populatedImage"] = $collection->populatedImages;
-            $collection->setting = $setting;
-            $collection->populatedRelationships = $collection->relations;
-
-            // Prepare the document and push to stream
-            $doc = $this->prepareDocument($collection);
-            $streamCallback(json_encode($doc) . "\n");
+        if (!$filters) {
+            return $resultFilters;
         }
-    }
-}
 
-/**
- * Retrieves the default value based on the type of trigger.
- *
- * @param string $type The type of trigger (STATES or PROPS).
- * @param string $key The key to look up.
- * @param array $states The states array.
- * @param array $props The properties array.
- * @param mixed $value The default value if not found in states or props.
- * @param mixed $host The host parameter for additional context.
- * @return mixed The resolved default value.
- */
-protected function getDefaultValue($type, $key, $states, $props, $value, $host)
-{
-    switch ($type) {
-        case 'STATES':
-            return Utils::getStateValue($key, $states, $host);
-        case 'PROPS':
-            return Utils::getStateValue($key, $props, $host);
-        default:
-            return $value;
-    }
-}
+        foreach ($filters as $filter) {
+            $resultFilters[] = $this->createFilterObject($filter, $states, $props, $host);
+        }
 
-/**
- * Creates a filter object with computed default values.
- *
- * @param array $filter The filter configuration.
- * @param array $states The states array.
- * @param array $props The properties array.
- * @param mixed $host The host parameter for additional context.
- * @return array The created filter object.
- */
-protected function createFilterObject($filter, $states, $props, $host)
-{
-    $type = $filter['triggerType'];
-    $key = $filter['triggerKey'];
-    $value = $filter['defaultValue'];
-
-    // Compute the default value based on the trigger type
-    $defaultValue = $this->getDefaultValue($type, $key, $states, $props, $value, $host);
-
-    return [
-        'filterKey' => array_merge([$filter['type']], $filter['filterKey']),
-        'defaultValue' => $defaultValue ?? ''
-    ];
-}
-
-/**
- * Processes a list of filters to create filter objects.
- *
- * @param array|null $filters The list of filters.
- * @param array $states The states array.
- * @param array $props The properties array.
- * @param mixed $host The host parameter for additional context.
- * @return array The list of processed filter objects.
- */
-protected function getFilters($filters, $states, $props, $host)
-{
-    $resultFilters = [];
-
-    if (!$filters) {
         return $resultFilters;
     }
 
-    foreach ($filters as $filter) {
-        $resultFilters[] = $this->createFilterObject($filter, $states, $props, $host);
-    }
+    /**
+     * Fetches documents by their IDs with optional relationships.
+     *
+     * @param string $id The ID of the collection.
+     * @param array $docs List of documents to fetch.
+     * @param bool $withRelationship Whether to include relationships.
+     * @param array $selectedRelationships List of selected relationships.
+     * @return array The fetched documents.
+     */
+    protected function fetchDocumentsByIds($id, $docs, $withRelationship, $selectedRelationships)
+    {
+        $docIds = array_map(fn($doc) => $doc['_id'], $docs);
 
-    return $resultFilters;
-}
-
-/**
- * Fetches documents by their IDs with optional relationships.
- *
- * @param string $id The ID of the collection.
- * @param array $docs List of documents to fetch.
- * @param bool $withRelationship Whether to include relationships.
- * @param array $selectedRelationships List of selected relationships.
- * @return array The fetched documents.
- */
-protected function fetchDocumentsByIds($id, $docs, $withRelationship, $selectedRelationships)
-{
-    $docIds = array_map(fn($doc) => $doc['_id'], $docs);
-
-    return $this->documentServices->getAllFilteredDocuments($id, [
-        'documentIds' => $docIds,
-        'withRelationship' => $withRelationship,
-        'selectedRelationships' => $selectedRelationships
-    ], [], []);
-}
-
-/**
- * Fetches all documents with filters, sorting, and pagination.
- *
- * @param string $id The ID of the collection.
- * @param array|null $filters The filters to apply.
- * @param array $states The states array.
- * @param array $props The properties array.
- * @param bool $withRelationship Whether to include relationships.
- * @param array $selectedRelationships List of selected relationships.
- * @param string $sortBy Field to sort by.
- * @param string $sort Sort direction (asc/desc).
- * @param int $limit Number of documents per page.
- * @param int $page Page number for pagination.
- * @param mixed $host The host parameter for additional context.
- * @return array The fetched documents with pagination info.
- */
-protected function fetchAllDocuments($id, $filters, $states, $props, $withRelationship, $selectedRelationships, $sortBy, $sort, $limit, $page, $host)
-{
-    // Compute filters with default values
-    $computedFilters = $this->getFilters($filters, $states, $props, $host);
-
-    return $this->documentServices->getAllFilteredDocuments(
-        $id,
-        [
-            'filters' => $computedFilters,
+        return $this->documentServices->getAllFilteredDocuments($id, [
+            'documentIds' => $docIds,
             'withRelationship' => $withRelationship,
             'selectedRelationships' => $selectedRelationships
-        ],
-        [],
-        [
-            'page' => $page,
-            'limit' => $limit,
-            'sortBy' => $sortBy . ':' . $sort
-        ]
-    );
-}
-
-/**
- * Loads documents from a collection, either by IDs or with filters.
- *
- * @param array $collection The collection data.
- * @param array $states The states array.
- * @param array $props The properties array.
- * @param mixed $host The host parameter for additional context.
- * @return array The collection with loaded documents and additional data.
- */
-public function loadDocuments($collection, $states, $props, $host)
-{
-    $id = $collection['_id'] ?? null;
-
-    if (!$id) {
-        return $collection;
+        ], [], []);
     }
 
-    $docs = $collection['docs'] ?? [];
-    $states = $collection['states'] ?? [];
-    $setting = $collection['setting'] ?? [];
-    $withRelationship = $collection['withRelationship'] ?? false;
-    $selectedRelationships = $collection['selectedRelationships'] ?? [];
-    $documents = [];
-    $maxPage = $collection['maxPage'] ?? 0;
+    /**
+     * Fetches all documents with filters, sorting, and pagination.
+     *
+     * @param string $id The ID of the collection.
+     * @param array|null $filters The filters to apply.
+     * @param array $states The states array.
+     * @param array $props The properties array.
+     * @param bool $withRelationship Whether to include relationships.
+     * @param array $selectedRelationships List of selected relationships.
+     * @param string $sortBy Field to sort by.
+     * @param string $sort Sort direction (asc/desc).
+     * @param int $limit Number of documents per page.
+     * @param int $page Page number for pagination.
+     * @param mixed $host The host parameter for additional context.
+     * @return array The fetched documents with pagination info.
+     */
+    protected function fetchAllDocuments($id, $filters, $states, $props, $withRelationship, $selectedRelationships, $sortBy, $sort, $limit, $page, $host)
+    {
+        // Compute filters with default values
+        $computedFilters = $this->getFilters($filters, $states, $props, $host);
 
-    if (!empty($docs)) {
-        // Fetch documents by IDs
-        $res = $this->fetchDocumentsByIds($id, $docs, $withRelationship, $selectedRelationships);
-        $documents = $res['documents'] ?? [];
-        $maxPage = $res['total'];
-    } else {
-        // Fetch all documents with filters and pagination
-        $filters = $collection['filters'] ?? null;
-        $sortBy = $collection['sortBy'] ?? 'created_at';
-        $sort = $collection['sort'] ?? 'asc';
-        $limit = $collection['limit'] ?? 10;
-        $page = $collection['page'] ?? 1;
-
-        $res = $this->fetchAllDocuments(
+        return $this->documentServices->getAllFilteredDocuments(
             $id,
-            $filters,
-            $states,
-            $props,
-            $withRelationship,
-            $selectedRelationships,
-            $sortBy,
-            $sort,
-            $limit,
-            $page,
-            $host
+            [
+                'filters' => $computedFilters,
+                'withRelationship' => $withRelationship,
+                'selectedRelationships' => $selectedRelationships
+            ],
+            [],
+            [
+                'page' => $page,
+                'limit' => $limit,
+                'sortBy' => $sortBy . ':' . $sort
+            ]
         );
-        $documents = $res['documents'] ?? [];
-        $maxPage = $res['total'];
     }
 
-    return array_merge($collection, [
-        'documents' => $documents,
-        'states' => $states,
-        'setting' => $setting,
-        'maxPage' => $maxPage
-    ]);
-}
+    /**
+     * Loads documents from a collection, either by IDs or with filters.
+     *
+     * @param array $collection The collection data.
+     * @param array $states The states array.
+     * @param array $props The properties array.
+     * @param mixed $host The host parameter for additional context.
+     * @return array The collection with loaded documents and additional data.
+     */
+    public function loadDocuments($collection, $states, $props, $host)
+    {
+        $id = $collection['_id'] ?? null;
 
-/**
- * Loads a collection by ID with specified projection fields.
- *
- * @param string $collection The ID of the collection to load.
- * @param array $projection The fields to select from the collection.
- * @return array|null The loaded collection data or null if not found.
- */
-public function loadCollection($collection, $projection = [
-    'states',
-    'relationships',
-    'setting',
-    'name',
-    '_id',
-])
-{
-    if ($collection) {
-        $coll = Collection::find($collection)->select($projection);
-
-        if ($coll) {
-            return [
-                'createdAt' => $coll->createdAt,
-                'url' => $coll->url,
-                'name' => $coll->name,
-                'slug' => $coll->slug,
-                'elements' => $coll->elements ?? [],
-                'states' => $coll->states ?? [],
-                'setting' => $coll->setting ?? [],
-            ];
-        }
-    }
-
-    return null;
-}
-
-/**
- * Handles the attachment of a component to a collection and processes its related components.
- *
- * @param array $component The component data.
- * @param array $parent The parent component or context.
- * @param array &$pages Reference to the pages array where data will be stored.
- * @param mixed $host The host parameter for additional context.
- */
-public function handleAttachedComponent($component, $parent, &$pages, $host)
-{
-    $collection = $component['attached'];
-
-    if (!isset($pages[$collection])) {
-        $pages[$collection] = $this->loadCollection($collection);
-    }
-
-    if (isset($pages[$collection])) {
-        $pageSetting = $pages[$collection]['setting'] ?? [];
-
-        // Handle related components if relationships are populated
-        if (!empty($pageSetting['populatedRelationships']) && isset($component['collStates']['related'])) {
-            $this->handleRelatedComponent($component, $pageSetting['populatedRelationships']);
+        if (!$id) {
+            return $collection;
         }
 
-        // Merge collection states with additional data
-        $collStates = array_merge($component['collStates'] ?? [], [
-            '_id' => $collection,
-            'name' => $pageSetting['name'] ?? '',
-            'slug' => $pageSetting['slug'] ?? '',
-            'created_at' => $pageSetting['created_at'] ?? '',
-            'creator' => $pageSetting['creator'] ?? '',
-            'setting' => $pageSetting['setting'] ?? [],
-            'states' => $pageSetting['states'] ?? [],
+        $docs = $collection['docs'] ?? [];
+        $states = $collection['states'] ?? [];
+        $setting = $collection['setting'] ?? [];
+        $withRelationship = $collection['withRelationship'] ?? false;
+        $selectedRelationships = $collection['selectedRelationships'] ?? [];
+        $documents = [];
+        $maxPage = $collection['maxPage'] ?? 0;
+
+        if (!empty($docs)) {
+            // Fetch documents by IDs
+            $res = $this->fetchDocumentsByIds($id, $docs, $withRelationship, $selectedRelationships);
+            $documents = $res['documents'] ?? [];
+            $maxPage = $res['total'];
+        } else {
+            // Fetch all documents with filters and pagination
+            $filters = $collection['filters'] ?? null;
+            $sortBy = $collection['sortBy'] ?? 'created_at';
+            $sort = $collection['sort'] ?? 'asc';
+            $limit = $collection['limit'] ?? 10;
+            $page = $collection['page'] ?? 1;
+
+            $res = $this->fetchAllDocuments(
+                $id,
+                $filters,
+                $states,
+                $props,
+                $withRelationship,
+                $selectedRelationships,
+                $sortBy,
+                $sort,
+                $limit,
+                $page,
+                $host
+            );
+            $documents = $res['documents'] ?? [];
+            $maxPage = $res['total'];
+        }
+
+        return array_merge($collection, [
+            'documents' => $documents,
+            'states' => $states,
+            'setting' => $setting,
+            'maxPage' => $maxPage
         ]);
-
-        // Load documents for the collection
-        $collStates = $this->loadDocuments($collStates, $component['states'] ?? [], $parent['states'] ?? [], $host);
-        $pages[$component['_id']]['collStates'] = $collStates;
-    }
-}
-
-/**
- * Handles related components by setting filters based on populated relationships.
- *
- * @param array $component The component data.
- * @param array $populatedRelationships The populated relationships for the component.
- */
-public function handleRelatedComponent($component, $populatedRelationships)
-{
-    if (!isset($component['collStates']['filters'])) {
-        $component['collStates']['filters'] = [];
     }
 
-    foreach ($populatedRelationships as $index => $rel) {
-        if ($rel) {
-            $component['collStates']['filters']["__related_{$index}__"] = [
-                'name' => 'Related',
-                'type' => 'RELATIONSHIPS',
-                'filterKey' => [$rel['_id']],
-                'defaultValue' => isset($populatedRelationships[$rel['_id']]) 
-                    ? array_map(fn($v) => $v['_id'], $populatedRelationships[$rel['_id']]) 
-                    : [],
-            ];
+    /**
+     * Loads a collection by ID with specified projection fields.
+     *
+     * @param string $collection The ID of the collection to load.
+     * @param array $projection The fields to select from the collection.
+     * @return array|null The loaded collection data or null if not found.
+     */
+    public function loadCollection(
+        $collection,
+        $projection = [
+            'states',
+            'relationships',
+            'setting',
+            'name',
+            '_id',
+        ]
+    ) {
+        if ($collection) {
+            $coll = Collection::find($collection)->select($projection);
+
+            if ($coll) {
+                return [
+                    'createdAt' => $coll->createdAt,
+                    'url' => $coll->url,
+                    'name' => $coll->name,
+                    'slug' => $coll->slug,
+                    'elements' => $coll->elements ?? [],
+                    'states' => $coll->states ?? [],
+                    'setting' => $coll->setting ?? [],
+                ];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Handles the attachment of a component to a collection and processes its related components.
+     *
+     * @param array $component The component data.
+     * @param array $parent The parent component or context.
+     * @param array &$pages Reference to the pages array where data will be stored.
+     * @param mixed $host The host parameter for additional context.
+     */
+    public function handleAttachedComponent($component, $parent, &$pages, $host)
+    {
+        $collection = $component['attached'];
+
+        if (!isset($pages[$collection])) {
+            $pages[$collection] = $this->loadCollection($collection);
+        }
+
+        if (isset($pages[$collection])) {
+            $pageSetting = $pages[$collection]['setting'] ?? [];
+
+            // Handle related components if relationships are populated
+            if (!empty($pageSetting['populatedRelationships']) && isset($component['collStates']['related'])) {
+                $this->handleRelatedComponent($component, $pageSetting['populatedRelationships']);
+            }
+
+            // Merge collection states with additional data
+            $collStates = array_merge($component['collStates'] ?? [], [
+                '_id' => $collection,
+                'name' => $pageSetting['name'] ?? '',
+                'slug' => $pageSetting['slug'] ?? '',
+                'created_at' => $pageSetting['created_at'] ?? '',
+                'creator' => $pageSetting['creator'] ?? '',
+                'setting' => $pageSetting['setting'] ?? [],
+                'states' => $pageSetting['states'] ?? [],
+            ]);
+
+            // Load documents for the collection
+            $collStates = $this->loadDocuments($collStates, $component['states'] ?? [], $parent['states'] ?? [], $host);
+            $pages[$component['_id']]['collStates'] = $collStates;
         }
     }
-}
+
+    /**
+     * Handles related components by setting filters based on populated relationships.
+     *
+     * @param array $component The component data.
+     * @param array $populatedRelationships The populated relationships for the component.
+     */
+    public function handleRelatedComponent($component, $populatedRelationships)
+    {
+        if (!isset($component['collStates']['filters'])) {
+            $component['collStates']['filters'] = [];
+        }
+
+        foreach ($populatedRelationships as $index => $rel) {
+            if ($rel) {
+                $component['collStates']['filters']["__related_{$index}__"] = [
+                    'name' => 'Related',
+                    'type' => 'RELATIONSHIPS',
+                    'filterKey' => [$rel['_id']],
+                    'defaultValue' => isset($populatedRelationships[$rel['_id']])
+                        ? array_map(fn($v) => $v['_id'], $populatedRelationships[$rel['_id']])
+                        : [],
+                ];
+            }
+        }
+    }
 
 
     /**
@@ -802,6 +872,8 @@ public function handleRelatedComponent($component, $populatedRelationships)
             $page = Collection::find($id);
         } elseif ($type === 'form') {
             $page = Form::find($id);
+        } elseif ($type === 'layout') {
+            $page = Layout::find($id);
         }
 
         if (!$page) {
@@ -847,53 +919,54 @@ public function handleRelatedComponent($component, $populatedRelationships)
         return $css;
     }
 
- /**
- * Prepares a document representation of a collection.
- *
- * This method creates a structured array representation of the collection
- * based on its properties and whether it is published or not.
- *
- * @param object $collection The collection object to be prepared.
- * @return array The prepared document array.
- */
-private function prepareDocument($collection)
-{
-    // Create the base document structure
-    $doc = [
-        'type' => $collection->type,
-        'createdAt' => $collection->createdAt,
-        'creator' => $collection->creator,
-        'setting' => $collection->setting,
-        'populatedRelationships' => $collection->populatedRelationships,
-        'name' => $collection->name,
-        'slug' => $collection->slug,
-        'url' => $collection->url,
-        '_id' => $collection->_id,
-        'attached' => $collection->attached,
-        'parent' => $collection->parent,
-    ];
+    /**
+     * Prepares a document representation of a collection.
+     *
+     * This method creates a structured array representation of the collection
+     * based on its properties and whether it is published or not.
+     *
+     * @param object $collection The collection object to be prepared.
+     * @return array The prepared document array.
+     */
+    private function prepareDocument($collection)
+    {
+        // Create the base document structure
+        $doc = [
+            'type' => $collection->type,
+            'createdAt' => $collection->createdAt,
+            'creator' => $collection->creator,
+            'setting' => $collection->setting,
+            'populatedRelationships' => $collection->populatedRelationships,
+            'name' => $collection->name,
+            'slug' => $collection->slug,
+            'url' => $collection->url,
+            '_id' => $collection->_id,
+            'attached' => $collection->attached,
+            'parent' => $collection->parent,
+            'main' => $collection->main,
+        ];
 
-    // Conditionally add properties based on publication status
-    if (!$collection->published) {
-        // Add internal properties if the collection is not published
-        $doc['elements'] = $collection->_elements;
-        $doc['components'] = $collection->_components;
-        $doc['forms'] = $collection->_forms;
-        $doc['states'] = $collection->_states;
-        $doc['collStates'] = $collection->_collStates;
-        $doc['events'] = $collection->_events;
-    } else {
-        // Add public properties if the collection is published
-        $doc['elements'] = $collection->elements;
-        $doc['components'] = $collection->components;
-        $doc['forms'] = $collection->forms;
-        $doc['states'] = $collection->states;
-        $doc['collStates'] = $collection->collStates;
-        $doc['events'] = $collection->events;
+        // Conditionally add properties based on publication status
+        if (!$collection->published) {
+            // Add internal properties if the collection is not published
+            $doc['elements'] = $collection->_elements;
+            $doc['components'] = $collection->_components;
+            $doc['forms'] = $collection->_forms;
+            $doc['states'] = $collection->_states;
+            $doc['collStates'] = $collection->_collStates;
+            $doc['events'] = $collection->_events;
+        } else {
+            // Add public properties if the collection is published
+            $doc['elements'] = $collection->elements;
+            $doc['components'] = $collection->components;
+            $doc['forms'] = $collection->forms;
+            $doc['states'] = $collection->states;
+            $doc['collStates'] = $collection->collStates;
+            $doc['events'] = $collection->events;
+        }
+
+        return $doc;
     }
-
-    return $doc;
-}
 
 
 }

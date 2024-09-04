@@ -95,7 +95,7 @@ class Form extends Model
         if (isset($elements['0'])) {
             // Generate unique identifiers
             $id = Str::random(7);
-            $className = 'ac-elem-' . $id;
+            $className = 'ac-elem-root-' . $id;
             $styleUid = Str::random(7);
 
             // Assign unique identifiers to the first element

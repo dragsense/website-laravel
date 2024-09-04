@@ -31,6 +31,7 @@ class PageServices
                 "0" => [
                     "_uid" => "0",
                     "tagName" => "div",
+                    "name" => 'Page Root Element',
                     "type" => "layout",
                     "layout" => "root",
                     "nodeValue" => "",

@@ -88,7 +88,7 @@ class Component extends Model
         $elements = $this->elements;
 
         $id = Str::random(7);
-        $className = 'ac-elem-' . $id;
+        $className = 'ac-elem-root-' . $id;
 
         // Ensure the key '0' exists before modifying it
         if (isset($elements[0])) {

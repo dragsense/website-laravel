@@ -90,6 +90,6 @@ class MediaController extends Controller
         $fullhost = "{$protocol}://{$host}";
 
         // Return response with media list and host URL
-        return JsonResponse::json(['media' => $media, 'host' => $fullhost], 200);
+        return response()->json(['media' => $media, 'host' => $fullhost], 200);
     }
 }

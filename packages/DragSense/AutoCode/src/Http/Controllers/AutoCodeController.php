@@ -24,86 +24,89 @@ class AutoCodeController extends Controller
         $this->themeServices = $themeServices;
     }
 
+    /**
+     * Handles the page request based on the incoming URL slug. It fetches the appropriate page or collection
+     * from the database, checks for maintenance or error pages, generates the required HTML, CSS, and JS, 
+     * and returns the view for rendering. If no page is found, it returns a 404 error page.
+     *
+     * @param Request $request The incoming HTTP request.
+     * @return \Illuminate\View\View|\Illuminate\Http\Response The response containing the rendered view or a 404 error page.
+     * @throws \Exception if an error occurs during the process.
+     */
     public function handlePageRequest(Request $request)
     {
         try {
-
-
+            // Extract dynamic slugs from request path
             $dynamicSlugs = trim($request->getPathInfo(), '/');
-
             $slugParts = explode('/', $dynamicSlugs);
 
+            // Define projection fields for querying the database
             $projection = ['_id', 'setting', 'slug', 'type'];
 
+            // Fetch settings
             $setting = $this->settingServices->getSettings();
             $page = null;
             $remainingSlug = '';
 
-            // Check if maintenance page is set
-            if (isset($setting['maintenancePage']) && !empty($setting['maintenancePage'])) {
+            // Check if the maintenance page is set and fetch it if applicable
+            if (!empty($setting['maintenancePage'])) {
                 $page = Page::select($projection)
-                    ->where('_id', $setting->maintenancePage->_id)
+                    ->where('_id', $setting['maintenancePage']['_id'])
+                    ->where('setting->status', 'PUBLIC')
+                    ->first();
+            } elseif (empty($dynamicSlugs) && !empty($setting['homePage'])) {
+                // Check if home page is set and fetch it if no slug provided
+                $page = Page::select($projection)
+                    ->where('_id', $setting['homePage']['_id'])
                     ->where('setting->status', 'PUBLIC')
                     ->first();
             } else {
-                // Check if home page is set
-                if (isset($setting['maintenancePage']) && !empty($setting['maintenancePage']) && (count($slugParts) <= 0 || $dynamicSlugs === '')) {
-                    $page = Page::select($projection)
-                        ->where('_id', $setting->homePage->_id)
-                        ->where('setting->status', 'PUBLIC')
-                        ->first();
-                } else {
-                    $page = Page::select($projection)
-                        ->where('slug', $dynamicSlugs)
-                        ->where('setting->status', 'PUBLIC')
-                        ->first();
+                // Check for page by slug
+                $page = Page::select($projection)
+                    ->where('slug', $dynamicSlugs)
+                    ->where('setting->status', 'PUBLIC')
+                    ->first();
 
-                    // If page not found, check in collections
-                    if (!$page) {
-                        foreach ($slugParts as $i => $slugPart) {
-                            $currentSlug = implode('/', array_slice($slugParts, 0, $i + 1));
+                // If the page is not found, check in collections
+                if (!$page) {
+                    foreach ($slugParts as $i => $slugPart) {
+                        $currentSlug = implode('/', array_slice($slugParts, 0, $i + 1));
 
-                            $page = Collection::select($projection)
-                                ->where('slug', $currentSlug)
-                                ->where('setting->status', 'PUBLIC')
-                                ->first();
+                        $page = Collection::select($projection)
+                            ->where('slug', $currentSlug)
+                            ->where('setting->status', 'PUBLIC')
+                            ->first();
 
-                            if ($page) {
-                                $remainingSlug = implode('/', array_slice($slugParts, $i + 1));
-                                break;
-                            }
+                        if ($page) {
+                            $remainingSlug = implode('/', array_slice($slugParts, $i + 1));
+                            break;
                         }
                     }
                 }
             }
 
-            // If page not found, check if error page is set
-            if (!$page && isset($setting['errorPage']) && !empty($setting['errorPage'])) {
+            // If page not found, check for the error page setting
+            if (!$page && !empty($setting['errorPage'])) {
                 $page = Page::select($projection)
-                    ->where('_id', $setting->errorPage->_id)
-                    ->where('setting.status', 'PUBLIC')
+                    ->where('_id', $setting['errorPage']['_id'])
+                    ->where('setting->status', 'PUBLIC')
                     ->first();
             }
 
-
-
-            // If page not found, handle page not found
+            // If still no page found, return 404
             if (!$page) {
                 return $this->handlePageNotFound();
             }
 
-            $protocol = request()->getScheme() ?? 'http';
-            $host = "{$protocol}://{$request->getHost()}";
-            $fullhost = "{$protocol}://{$host}";
+            // Prepare URLs
+            $protocol = $request->getScheme() ?? 'http';
+            $fullhost = "{$protocol}://{$request->getHost()}";
 
+            // Fetch page data and generate HTML
             $pageResults = $this->fetchPageData($page, $fullhost, $remainingSlug);
-
             $html = '';
 
-
-
-
-
+            // Prepare global settings for the view
             $globalSetting = [
                 'global' => [
                     'webTitle' => $setting['webTitle'] ?? 'Default Title',
@@ -111,13 +114,11 @@ class AutoCodeController extends Controller
                     'desc' => $setting['desc'] ?? 'Default Description',
                     'author' => $setting['author'] ?? 'Default Author',
                     'images' => $setting['images'] ?? [],
-                  
                 ],
                 'host' => $fullhost
-                
             ];
 
-
+            // Generate HTML content if the page has elements
             if (isset($pageResults['pages'][$page->_id])) {
                 $elements = $pageResults['pages'][$page->_id]['elements'];
                 $pageSetting = $pageResults['pages'][$page->_id]['pageSetting'];
@@ -128,28 +129,18 @@ class AutoCodeController extends Controller
                     $pageSetting,
                     $globalSetting,
                     $fullhost
-                ); // Generate HTML for the root node
+                );
             }
 
-
-            // $htmlString = view('layouts.page', [
-            //     'page' => $page,
-            //     'pagesResults' => $pagesResults,
-            //     'setting' => $settingData,
-            //     'type' => $page->type ?? 'page',
-            //     'AutocodeCustom' => $request->AutocodeCustom,
-            //     'AutoCode' => $request->AutoCode
-            // ])->render();
-
+            // Fetch theme assets
             $options = ['limit' => 10];
             $fonts = $this->themeServices->getFonts([], $options);
             $colors = $this->themeServices->getColors([], $options);
             $variables = $this->themeServices->getVariables([], $options);
-
             $globalCss = $this->themeServices->getCss();
+            $globalJs = $this->themeServices->getJs();
 
-
-
+            // Prepare CSS root variables and font styles
             $rootCss = "html { " .
                 implode(' ', array_map(fn($font) => "{$font['variable']}: {$font['fontFamily']};", $fonts['data'])) .
                 implode(' ', array_map(fn($color) => "{$color['variable']}: {$color['color']};", $colors['data'])) .
@@ -171,32 +162,20 @@ class AutoCodeController extends Controller
                 return '';
             }, $fonts['data']));
 
-            $globalJs = $this->themeServices->getJs();
-
+            // Define file paths for custom styles and scripts
             $cssFilePath = base_path('dist/autocode-custom-style.css');
             $jsFilePath = base_path('dist/autocode-custom-index.js');
 
-            // Check if CSS directory exists, if not create it
-            if (!File::exists(dirname($cssFilePath))) {
-                File::makeDirectory(dirname($cssFilePath), 0755, true);
-            }
+            // Ensure directories exist before writing files
+            File::ensureDirectoryExists(dirname($cssFilePath));
+            File::ensureDirectoryExists(dirname($jsFilePath));
 
-            // Check if JS directory exists, if not create it
-            if (!File::exists(dirname($jsFilePath))) {
-                File::makeDirectory(dirname($jsFilePath), 0755, true);
-            }
-
-
+            // Write CSS and JS to files
             $pageCss = implode("\n", $pageResults['css']);
-
-
-            /// Write CSS to temp file
             File::put($cssFilePath, "{$rootCss}\n{$globalCss['css']}\n{$pageCss}");
-
-            // Write JS to temp file
             File::put($jsFilePath, $globalJs['code']);
 
-
+            // Return the view with all necessary data
             return view('autocode-app', [
                 'type' => $page->type ?? 'page',
                 '_id' => $page->_id,
@@ -206,78 +185,106 @@ class AutoCodeController extends Controller
                 'fontCssString' => $fontCssString,
                 'html' => $html
             ]);
-        } catch (\Exception $e) {
-            \Log::error("Error in handlePageRequest: {$e->getMessage()}");
+        } catch (Exception $e) {
+            // Log error and return 404 page
+            Log::error("Error in handlePageRequest: {$e->getMessage()}");
             return $this->handlePageNotFound();
         }
     }
 
+    /**
+     * Handles the scenario when a requested page is not found.
+     * Returns a simple HTML response with a 404 status code.
+     *
+     * @return \Illuminate\Http\Response The response containing a 404 error page.
+     */
     function handlePageNotFound()
     {
         return response()->make(
             "<!DOCTYPE html>
-            <html>
-                <head>
-                    <title>404</title>
-                </head>
-                <body>
-                    <div id='root'>Page not found.</div>
-                </body>
-            </html>",
+        <html>
+            <head>
+                <title>404</title>
+            </head>
+            <body>
+                <div id='root'>Page not found.</div>
+            </body>
+        </html>",
             404
         )->header('Content-Type', 'text/html');
     }
 
 
-    function generateHTML(&$elements, $nodeId, &$pageResults, &$pageSetting, &$globalSetting, &$host, &$states = [])
+
+
+    /**
+     * Generates HTML based on the provided elements, page settings, global settings, and states.
+     * The function recursively processes elements and their child nodes, applying conditions
+     * and attributes, and handles special cases for tags like `img` and `input`.
+     *
+     * @param array $elements The array of elements to generate HTML from.
+     * @param string $nodeId The ID of the current node being processed.
+     * @param array $pageResults The result set containing page elements and states.
+     * @param array $pageSetting The settings specific to the current page.
+     * @param array $globalSetting The global settings for the page.
+     * @param string $host The host URL.
+     * @param array $states The current states for the page.
+     * @param array $props The current props for the page.
+     * @return string The generated HTML string.
+     */
+    function generateHTML(&$elements, $nodeId, &$pageResults, &$pageSetting, &$globalSetting, &$host, &$states = [], &$props = [])
     {
         if (!isset($elements[$nodeId])) {
-            \Log::error("Element with ID {$nodeId} not found in elements.");
+            Log::error("Element with ID {$nodeId} not found in elements.");
             return '';
         }
 
         $element = $elements[$nodeId];
         if (empty($element['tagName'])) {
-            \Log::error("Element with ID {$nodeId} does not have a tagName.");
+            Log::error("Element with ID {$nodeId} does not have a tagName.");
             return '';
         }
 
         $conditions = $element['conditions'] ?? [];
         $mapValue = [];
         $mapIndex = 0;
-        if (!$this->calculateConditions($conditions, $states, $pageSetting, $globalSetting, $mapValue, $mapIndex)) {
-            // Skip rendering this element if conditions are not met
-            return '';
+
+        if (!$this->calculateConditions($conditions, $states, $props, $pageSetting, $globalSetting, $mapValue, $mapIndex)) {
+            return ''; // Skip rendering this element if conditions are not met
         }
 
+        // Initialize HTML as an empty string
         $html = '';
 
-        // Check if the element has a 'map' key and iterate if present
+        // Handle 'map' elements
         if (isset($element['map'])) {
-            $elem = $element['map'];
-            $props = [];
-            $mapItems = $this->getStatesValueType($elem, $states, $props, $host);
-
+            $mapItems = $this->getStatesValueType($element['map'], $states, $props, $host);
 
             foreach ($mapItems as $mapIndex => $mapValue) {
-                $html .= $this->renderElement(
-                    $element,
-                    $elements,
-                    $pageResults,
-                    $pageSetting,
-                    $globalSetting,
-                    $states,
-                    $mapValue,
-                    $mapIndex
-                );
+                $html .= $this->renderElement($element, $elements, $pageResults, $pageSetting, $globalSetting, $states, $props, $mapValue, $mapIndex);
             }
         } else {
-            $html .= $this->renderElement($element, $elements, $pageResults, $pageSetting, $globalSetting, $states);
+            $html .= $this->renderElement($element, $elements, $pageResults, $pageSetting, $globalSetting, $states, $props);
         }
 
         return $html;
     }
 
+    /**
+     * Renders a single HTML element, applying attributes, classes, and handling special cases
+     * for certain tags. It also processes child nodes recursively.
+     *
+     * @param array $element The element to be rendered.
+     * @param array $elements The array of all elements for the page.
+     * @param array $pageResults The result set containing page elements and states.
+     * @param array $pageSetting The settings specific to the current page.
+     * @param array $globalSetting The global settings for the page.
+     * @param array $states The current states for the page.
+     * @param array $props The current states for the page.
+     * @param array $mapValue The current map value for iterated elements.
+     * @param int $mapIndex The index for the current map iteration.
+     * @return string The generated HTML string for the element.
+     */
     private function renderElement(
         $element,
         &$elements,
@@ -285,102 +292,62 @@ class AutoCodeController extends Controller
         &$pageSetting,
         &$globalSetting,
         &$states,
+        &$props,
         &$mapValue = [],
         &$mapIndex = 0
     ) {
-        $tagName = $element['tagName'];
-        $state = $mapItem['state'] ?? $element['state'] ?? ["type" => '', "key" => ''];
-        $value = $this->getValue(
-            $state,
-            $states,
-            $pageSetting,
-            $globalSetting,
-            $mapValue,
-            $mapIndex,
-            $element['nodeValue']
-        );
+        $tagName = $element['tagName'] ?? '';
+
+        if (!$tagName) {
+            Log::error('Element tagName is missing.');
+            return '';
+        }
+
+        $state = $element['state'] ?? ['type' => '', 'key' => ''];
+        $value = $this->getValue($state, $states, $props, $pageSetting, $globalSetting, $mapValue, $mapIndex, $element['nodeValue'] ?? '');
 
         $html = "<{$tagName}";
 
+        // Generate attributes
         $attributes = $this->calculateAttributes(
             $element['attributes'] ?? [],
             $states,
+            $props,
             $pageSetting,
             $globalSetting,
             $mapValue,
-            $mapIndex,
+            $mapIndex
         );
+
         foreach ($attributes as $key => $attributeValue) {
             if ($attributeValue !== null) {
                 $html .= " {$key}=\"" . htmlspecialchars($attributeValue) . "\"";
             }
         }
 
-        $dynamicClasses = isset($element['classes']) ? $this->reduceClassNames(
-            $element['classes'],
-            $states,
-            $pageSetting,
-            $globalSetting,
-            $mapValue,
-            $mapIndex
-        ) : '';
-        $className = $element['className'] ?? '';
+        // Handle dynamic and static classes
+        $dynamicClasses = isset($element['classes']) ? $this->reduceClassNames($element['classes'], $states, $props, $pageSetting, $globalSetting, $mapValue, $mapIndex) : '';
+        $allClasses = trim(($element['className'] ?? '') . ' ' . $dynamicClasses);
 
-        $allClasses = trim($className . ' ' . $dynamicClasses);
         if (!empty($allClasses)) {
             $html .= " class=\"{$allClasses}\"";
         }
 
-        
-
         // Handle special cases for img and input tags
-        if ($tagName === 'img' && $value) {
-            $html .= " src=\"" . htmlspecialchars($value['value'] ?? $value) . "\"";
-        } elseif ($tagName === 'input' && $value) {
-            $html .= " value=\"" . htmlspecialchars($value['value'] ?? $value) . "\"";
+        if (in_array($tagName, ['img', 'input']) && $value) {
+            $html .= ($tagName === 'img') ? " src=\"" . htmlspecialchars($value['value'] ?? $value) . "\"" : " value=\"" . htmlspecialchars($value['value'] ?? $value) . "\"";
         }
 
         $html .= '>';
 
-        if(isset($value['label']))
-        $value = $value['label'];
-
-        // Add nodeValue inside the tag if it exists and it's not an img or input
-        $tagsIncludes = ['img', 'input'];
-        if (!in_array($tagName, $tagsIncludes) && $value) {
+        // Add content inside the tag if it's not an img or input
+        if (!in_array($tagName, ['img', 'input']) && $value) {
             $html .= '<span>' . htmlspecialchars($value['value'] ?? $value) . '</span>';
         }
 
         // Recursively process child nodes
         foreach ($element['childNodes'] ?? [] as $childNodeId) {
-            if ($childNodeId === "0") {
-                $elementUid = $element['_uid'];
-                $pageElements = $elements[$elementUid] ?? null;
-                $pageId = $pageElements && isset($pageElements["page"]) ? $pageElements["page"]['_id'] : -1;
-                $innerElements = $pageResults[$pageId]['elements'];
-                $states = $pageResults[$pageId]['states'];
-                
-                $html .= $this->generateHTML($innerElements, "0", $pageResults, $pageSetting, $globalSetting, $host, $states);
-            } else {
-                if (isset($elements[$childNodeId]['page'])) {
-                    $page = $elements[$childNodeId]['page'];
-                    $pageId = $page['_id'];
-                    $pageType = $page['pageType'];
-
-                    if ($pageType === 'form') {
-                        $apiPrefix = config('autocode.prefix');
-
-                        $html .= "<span data-name='form'><form action='{$apiPrefix}/v1/forms/submit/{$pageId}' method='POST'>";
-                    } else {
-                        $html .= "<span data-name='component'>";
-                    }
-                }
-                $html .= $this->generateHTML($elements, $childNodeId, $pageResults, $pageSetting, $globalSetting,  $host, $states);
-
-                if (isset($elements[$childNodeId]['page'])) {
-                    $html .= $pageType === 'form' ? '</form></span>' : '</span>';
-                }
-            }
+            $html .= $this->processChildNode($childNodeId, $element, $elements, $pageResults, $pageSetting, $globalSetting, $host, $states, $props);
         }
 
         $html .= "</{$tagName}>";
@@ -388,56 +355,117 @@ class AutoCodeController extends Controller
         return $html;
     }
 
+    /**
+     * Processes a child node by either recursively generating its HTML or handling special cases like forms and components.
+     * If the child node ID is "0", it handles the root node of a nested structure. 
+     * It also handles specific scenarios where the child node is associated with a page and needs to render form or component tags.
+     *
+     * @param string $childNodeId The ID of the child node to process.
+     * @param array $element The current element containing the child node.
+     * @param array $elements The full set of elements in the document.
+     * @param array $pageResults The results from fetching the pages, including their elements and states.
+     * @param array $pageSetting The current page's settings.
+     * @param array $globalSetting Global settings that apply across the entire document.
+     * @param string $host The host URL or identifier.
+     * @param array $states The state data used for rendering dynamic content.
+     * 
+     * @return string The HTML string generated for the child node.
+     */
+    private function processChildNode($childNodeId, $element, &$elements, &$pageResults, &$pageSetting, &$globalSetting, &$host, &$states, &$props)
+    {
+        $html = '';
+
+        if ($childNodeId === "0") {
+            $elementUid = $element['_uid'];
+            $pageElements = $elements[$elementUid] ?? null;
+            $pageId = $pageElements && isset($pageElements["page"]) ? $pageElements["page"]['_id'] : -1;
+            $innerElements = $pageResults[$pageId]['elements'] ?? [];
+            $newstates = $pageResults[$pageId]['states'] ?? [];
+            $newProps = $states;
+
+            $html .= $this->generateHTML($innerElements, "0", $pageResults, $pageSetting, $globalSetting, $host, $newstates, $newProps);
+        } else {
+            $page = $elements[$childNodeId]['page'] ?? null;
+            if ($page) {
+                $pageId = $page['_id'];
+                $pageType = $page['pageType'];
+
+                $html .= $pageType === 'form'
+                    ? "<span data-name='form'><form action='" . config('autocode.prefix') . "/v1/forms/submit/{$pageId}' method='POST'>"
+                    : "<span data-name='component'>";
+            }
+
+            $html .= $this->generateHTML($elements, $childNodeId, $pageResults, $pageSetting, $globalSetting, $host, $states, $props);
+
+            if ($page) {
+                $html .= $pageType === 'form' ? '</form></span>' : '</span>';
+            }
+        }
+
+        return $html;
+    }
+
+    /**
+     * Retrieves the value type based on the provided element's type and key.
+     * The function can return values from states, props, or a default value.
+     *
+     * @param array $elem The element containing the type and key to retrieve.
+     * @param array $states The current states for the page.
+     * @param array $props The properties for the page.
+     * @param string $host The host URL.
+     * @param array $value The default value to return if no type is matched.
+     * @return mixed The retrieved value based on the element type.
+     */
     function getStatesValueType($elem, &$states, &$props, $host, $value = [])
     {
-        $type = $elem["type"];
-        $key = $elem["key"];
+        $type = $elem['type'] ?? '';
+        $key = $elem['key'] ?? '';
 
-
-        switch ($type) {
-            case 'STATES':
-                return Utils::getStateStates($key, $states, $host);
-            case 'PROPS':
-                return Utils::getStateStates($key, $props, $host);
-            default:
-                return $value;
-
-        }
+        return match ($type) {
+            'STATES' => Utils::getStateStates($key, $states, $host),
+            'PROPS' => Utils::getStateStates($key, $props, $host),
+            default => $value,
+        };
     }
 
 
+    /**
+     * Retrieves the value based on the provided element's type and key.
+     * The function can return values from global settings, states, page settings, or a default value.
+     *
+     * @param array $elem The element containing the type and key to retrieve.
+     * @param array $states The current states for the page.
+     * @param array $props The current states for the page.
+     * @param array $setting The settings for the current page.
+     * @param array $globalSetting The global settings for the page.
+     * @param array $mapValue The current map value for iterated elements.
+     * @param int $mapIndex The index for the current map iteration.
+     * @param mixed $defaultValue The default value to return if no type is matched.
+     * @return mixed The retrieved value based on the element type.
+     */
     function getValue(
         $elem,
         &$states,
+        &$props,
         &$setting,
         &$globalSetting,
         &$mapValue,
         &$mapIndex,
         $defaultValue = ''
     ) {
+        $type = $elem['type'] ?? '';
+        $key = $elem['key'] ?? '';
 
-        $type = $elem['type'];
-        $key = $elem['key'];
-
-        switch ($type) {
-            case 'GLOBAL':
-                return Utils::getGlobalValue($key, $globalSetting);
-            case 'STATES':
-
-                return Utils::getStateValue($key, $states, $setting['host'] ?? null);
-            case 'PAGE':
-                return Utils::getPageValue($key, $setting, $setting['host'] ?? null);
-                case "FORMSTATES":
-                    return isset($states[$key[0]]) && isset($states[$key[0]][$key[1]])
-                      ? $states[$key[0]][$key[1]] :
-                          "''";
-            case 'MAPVALUE':
-                return $mapValue;
-            case 'MAPINDEX':
-                return $mapIndex;
-            default:
-                return $defaultValue;
-        }
+        return match ($type) {
+            'GLOBAL' => Utils::getGlobalValue($key, $globalSetting),
+            'STATES' => Utils::getStateValue($key, $states, $setting['host'] ?? null),
+            'PROPS' => Utils::getStateValue($key, $props, $setting['host'] ?? null),
+            'PAGE' => Utils::getPageValue($key, $setting, $setting['host'] ?? null),
+            'FORMSTATES' => $states[$key[0]][$key[1]] ?? "''",
+            'MAPVALUE' => $mapValue,
+            'MAPINDEX' => $mapIndex,
+            default => $defaultValue,
+        };
     }
 
     /**
@@ -540,6 +568,7 @@ class AutoCodeController extends Controller
     private function calculateConditions(
         array $conditions,
         &$states,
+        &$props,
         &$setting,
         &$globalSetting,
         &$mapValue,
@@ -551,6 +580,7 @@ class AutoCodeController extends Controller
             $value = $this->getValue(
                 $condition,
                 $states,
+                $props,
                 $setting,
                 $globalSetting,
                 $mapValue,
@@ -562,6 +592,7 @@ class AutoCodeController extends Controller
                 $this->getValue(
                     $condition['valueState'],
                     $states,
+                    $props,
                     $setting,
                     $globalSetting,
                     $mapValue,
@@ -589,6 +620,7 @@ class AutoCodeController extends Controller
     private function calculateAttributeValue(
         array $attribute,
         &$states,
+        &$props,
         &$setting,
         &$globalSetting,
         &$mapValue,
@@ -600,6 +632,7 @@ class AutoCodeController extends Controller
             $attributeValue = $this->calculateAttributes(
                 $attribute['attributes'],
                 $states,
+                $props,
                 $setting,
                 $globalSetting,
                 $mapValue,
@@ -611,6 +644,7 @@ class AutoCodeController extends Controller
                 $this->getValue(
                     $attribute['valueState'],
                     $states,
+                    $props,
                     $setting,
                     $globalSetting,
                     $mapValue,
@@ -625,7 +659,7 @@ class AutoCodeController extends Controller
 
                 try {
                     eval ("\$attributeValue = $value;");
-                } catch (\Exception $e) {
+                } catch (Exception $e) {
                     // Handle the error according to your application's requirements.
                     error_log("Invalid expression: " . $e->getMessage());
                 }
@@ -638,6 +672,7 @@ class AutoCodeController extends Controller
         $cond = $this->calculateConditions(
             $conditions,
             $states,
+            $props,
             $setting,
             $globalSetting,
             $mapValue,
@@ -656,6 +691,7 @@ class AutoCodeController extends Controller
     private function calculateAttributes(
         array $attributes,
         &$states,
+        &$props,
         &$setting,
         &$globalSetting,
         &$mapValue,
@@ -669,6 +705,7 @@ class AutoCodeController extends Controller
             $attributeValue = $this->calculateAttributeValue(
                 $attribute,
                 $states,
+                $props,
                 $setting,
                 $globalSetting,
                 $mapValue,
@@ -687,6 +724,7 @@ class AutoCodeController extends Controller
     function calculateClassNames(
         $cls,
         &$states,
+        &$props,
         &$setting,
         &$globalSetting,
         &$mapValue,
@@ -699,6 +737,7 @@ class AutoCodeController extends Controller
         $cond = $this->calculateConditions(
             $conditions,
             $states,
+            $props,
             $setting,
             $globalSetting,
             $mapValue,
@@ -707,6 +746,7 @@ class AutoCodeController extends Controller
         $classNames = $this->getValue(
             $cls['stateValue'],
             $states,
+            $props,
             $setting,
             $globalSetting,
             $mapValue,
@@ -730,6 +770,7 @@ class AutoCodeController extends Controller
     function reduceClassNames(
         $classes,
         &$states,
+        &$props,
         &$setting,
         &$globalSetting,
         &$mapValue,
@@ -739,6 +780,7 @@ class AutoCodeController extends Controller
             $classValue = $this->calculateClassNames(
                 $cls,
                 $states,
+                $props,
                 $setting,
                 $globalSetting,
                 $mapValue,
@@ -748,6 +790,14 @@ class AutoCodeController extends Controller
         }, "");
     }
 
+    /**
+     * Fetches the data needed to render the specified page or collection.
+     *
+     * @param Page|Collection $page The page or collection to fetch data for.
+     * @param string $host The current host URL.
+     * @param string $remainingSlug Additional slug information, if any.
+     * @return array The data for the page or collection.
+     */
     private function fetchPageData($page, $host, $remainingSlug)
     {
         // Implement fetching page data logic similar to Node.js

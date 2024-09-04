@@ -113,7 +113,7 @@ class Collection extends Model
         $elements = $this->elements;
 
         $id = Str::random(7);
-        $className = 'ac-elem-' . $id;
+        $className = 'ac-elem-root-' . $id;
         $styleUid = Str::random(7);
 
         // Ensure the key '0' exists before modifying it

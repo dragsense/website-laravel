@@ -35,6 +35,7 @@ class CollectionServices
                     "_uid" => "0",
                     "tagName" => "div",
                     "type" => "layout",
+                    "name" => 'Collection Root Element',
                     "layout" => "root",
                     "nodeValue" => "",
                     "childNodes" => []

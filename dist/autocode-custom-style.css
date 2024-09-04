@@ -20,12 +20,38 @@ color: red;
 
 }
 
-.ac-elem-pkZXSWRV {
-  max-width: 100%; height: auto
+
+.ac-elem-root-dhI4VAY {
+  display: grid; grid-template-areas: "header header header"
+            "left-aside main right-aside"
+            "footer footer footer"; grid-template-columns: 1fr 3fr 1fr; grid-template-rows: auto
 }
 
-.ac-elem-GfQjoaeg {
-  max-width: 100%; height: auto
+@media (min-width: 768px) and (orientation: landscape) {
+.ac-elem-root-dhI4VAY {
+  grid-template-areas: "header header header"
+            "left-aside main right-aside"
+            "footer footer footer"; grid-template-columns: 1fr 3fr 1fr
 }
 
+}
+.ac-element-header-lQpnZKH {
+  grid-area: header
+}
+
+.ac-element-left-aside-bgAw1Ap {
+  grid-area: left aside
+}
+
+.ac-element-main-z8UI0Xr {
+  grid-area: main
+}
+
+.ac-element-right-aside-SZCS23P {
+  grid-area: right aside
+}
+
+.ac-element-footer-qz6GXXV {
+  grid-area: footer
+}
 

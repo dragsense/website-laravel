@@ -286,24 +286,33 @@ class Utils
         };
     }
 
+    private static $lastCallTime = 0;
+
     /**
-     * Debounce function execution.
+     * Returns a debounced version of the provided callable function.
      *
      * @param callable $func The function to debounce.
-     * @param int $wait The debounce wait time in milliseconds.
-     * @return callable The debounced function.
+     * @param int $wait The wait time in milliseconds.
+     * @return callable A debounced version of the provided function.
      */
     public static function debounce(callable $func, int $wait): callable
     {
-        $timeoutId = null;
-        return function (...$args) use ($func, &$timeoutId, $wait) {
-            if ($timeoutId !== null) {
-                usleep($timeoutId);
+        $waitInSeconds = $wait / 1000; // Convert milliseconds to seconds
+
+        return function (...$args) use ($func, $waitInSeconds) {
+            $currentTime = microtime(true);
+            $timeElapsed = $currentTime - self::$lastCallTime;
+
+            if ($timeElapsed < $waitInSeconds) {
+                $sleepTime = $waitInSeconds - $timeElapsed;
+                sleep($sleepTime); // Sleep for the remaining time
             }
-            $timeoutId = usleep($wait * 1000); // Convert milliseconds to microseconds
-            call_user_func_array($func, $args);
+
+            self::$lastCallTime = microtime(true); // Update the last call time
+            call_user_func_array($func, $args); // Call the original function
         };
     }
+
 
 
     /**
