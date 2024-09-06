@@ -351,9 +351,6 @@ class FormServices
  */
 public function submitForm($id, &$files, &$states, $host)
 {
-    // Log the form states for debugging purposes
-    Log::info($states);
-
     // Validate the form and its states
     $form = $this->validateForm($id);
     $formStates = $this->validateStates($form, $states);

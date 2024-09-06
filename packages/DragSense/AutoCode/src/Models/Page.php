@@ -89,7 +89,7 @@ class Page extends Model
 
         if (isset($elements[0])) {
             $id = Str::random(7);
-            $className = 'ac-elem-root-' . $id;
+            $className = 'ac-elem-page-root-' . $id;
             $styleUid = Str::random(7);
 
             $elements[0]['className'] = $className;

@@ -12,16 +12,22 @@ use Exception;
 use File;
 use Illuminate\Http\Request;
 use Log;
+use Symfony\Component\ExpressionLanguage\ExpressionLanguage;
+use Symfony\Component\ExpressionLanguage\SyntaxError;
 
 class AutoCodeController extends Controller
 {
     protected $settingServices;
     protected $themeServices;
+    private $expressionLanguage;
 
     public function __construct(SettingServices $settingServices, ThemeServices $themeServices)
     {
         $this->settingServices = $settingServices;
         $this->themeServices = $themeServices;
+
+        $this->expressionLanguage = new ExpressionLanguage();
+
     }
 
     /**
@@ -478,86 +484,24 @@ class AutoCodeController extends Controller
      */
     private function evaluateCondition(string $expression, string $v, string $keyValue): bool
     {
-        // Replace [state] and [key] with actual values
+        // Replace placeholders in the expression
         $expression = str_replace(['[state]', '[key]'], [$v, $keyValue], $expression);
 
-        // Handle boolean literals and convert them to actual boolean values
-        $expression = str_replace(['true', 'false', "'true'", "'false'"], [true, false, true, false], $expression);
-
-        // Handle cases where the expression is a direct boolean value or string that represents a boolean
-        if ($expression === 'true' || $expression === "'true'") {
-            return true;
-        }
-        if ($expression === 'false' || $expression === "'false'") {
-            return false;
-        }
-
-        // Supported operators
-        $operators = ['===', '==', '!=', '>', '<', '>=', '<=', '&&', '||'];
-
-        foreach ($operators as $operator) {
-            if (strpos($expression, $operator) !== false) {
-                // Handle logical AND and OR
-                if ($operator === '&&' || $operator === '||') {
-                    list($left, $right) = explode($operator, $expression);
-                    $left = trim($left);
-                    $right = trim($right);
-
-                    $leftResult = $this->evaluateCondition($left, $v, $keyValue);
-                    $rightResult = $this->evaluateCondition($right, $v, $keyValue);
-
-                    return $operator === '&&' ? ($leftResult && $rightResult) : ($leftResult || $rightResult);
-                }
-
-                // Handle comparison operators
-                list($left, $right) = explode($operator, $expression);
-                $left = trim($left);
-                $right = trim($right);
-                $result = false;
-
-                switch ($operator) {
-                    case '===':
-                        $result = $left === $right;
-                        break;
-                    case '==':
-                        $result = $left == $right;
-                        break;
-                    case '!=':
-                        $result = $left != $right;
-                        break;
-                    case '>':
-                        $result = $left > $right;
-                        break;
-                    case '<':
-                        $result = $left < $right;
-                        break;
-                    case '>=':
-                        $result = $left >= $right;
-                        break;
-                    case '<=':
-                        $result = $left <= $right;
-                        break;
-                }
-
-                return $result;
-            }
+        try {
+            // Evaluate the modified expression
+            return (bool) $this->expressionLanguage->evaluate($expression);
+        } catch (SyntaxError $e) {
+            // Handle syntax errors in the expression
+            // You can log the error or show an error message
+            throw new \InvalidArgumentException("Invalid expression: " . $e->getMessage());
+        } catch (Exception $e) {
+            // Handle any other exceptions
+            throw new \RuntimeException("Error evaluating expression: " . $e->getMessage());
         }
 
-        // If the expression does not contain recognized operators, handle it as a simple boolean or value
-        // For single values, return true if the value is non-empty and non-zero, otherwise false
-        if (is_numeric($expression)) {
-            return (float) $expression != 0;
-        }
-
-        // Handle simple non-empty strings as true
-        if (is_string($expression)) {
-            return !empty($expression);
-        }
-
-        // Default to true for unrecognized expressions
-        Log::error("Invalid expression: " . $expression);
-        return true;
     }
+
+
 
     /**
      * This function is used to calculate the conditions for rendering the component.

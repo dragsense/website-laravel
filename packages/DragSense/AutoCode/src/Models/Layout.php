@@ -81,7 +81,7 @@ class Layout extends Model{
         $elements = $this->elements;
 
         $id = Str::random(7);
-        $className = 'ac-elem-root-' . $id;
+        $className = 'ac-elem-layout-root-' . $id;
         $styleUid = Str::random(7);
 
         $elements[0]['className'] = $className;
@@ -196,7 +196,7 @@ class Layout extends Model{
                         'root' => [
                             'properties' => [
                                 'grid-area' => [
-                                    'value' => str_replace('-', ' ', $childClassNames[$i]),
+                                    'value' => $childClassNames[$i],
                                     'unit' => '',
                                 ],
                             ],
@@ -208,7 +208,7 @@ class Layout extends Model{
 
         $gridTemplateAreas = "
             \"header header header\"
-            \"" . ($includeLeft ? 'left-aside' : '') . " main " . ($includeRight ? 'right-aside' : '') . "\"
+            \"" . ($includeLeft ? 'left-aside' : 'main') . " main " . ($includeRight ? 'right-aside' : 'main') . "\"
             \"footer footer footer\"
         ";
 

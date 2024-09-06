@@ -11,6 +11,7 @@ use DragSense\AutoCode\Models\Page;
 use DragSense\AutoCode\Utils\Utils;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Log;
+use Str;
 
 class SettingServices
 {
@@ -164,7 +165,7 @@ class SettingServices
                 foreach ($page->populatedRelationships as $collection) {
                     $populatedRelationships[$collection->_id] = [$collection];
                 }
-            } 
+            }
 
             $components = $page->components ?? [];
             $this->loadComponents($components, $pages, $style, $host, $withCss);
@@ -181,7 +182,7 @@ class SettingServices
                     'states' => $page->states,
                     'name' => $page->name,
                     'slug' => $page->slug,
-                    'relationships' =>  $relationships,
+                    'relationships' => $relationships,
                     'populatedRelationships' => $populatedRelationships,
                     'creator' => $page->creator,
                     'createdAt' => $page->createdAt,
@@ -367,7 +368,6 @@ class SettingServices
 
 
 
-
     /**
      * Get a page elements
      *
@@ -379,55 +379,55 @@ class SettingServices
      */
     public function getElements($id, $type, $host, callable $streamCallback)
     {
-        $page = null;
+        // Determine the model based on the type
+        $Model = $type === 'collection' ? Collection::class :
+            ($type === 'component' ? Component::class :
+                ($type === 'form' ? Form::class :
+                    ($type === 'layout' ? Layout::class : Page::class)));
 
-        if ($type === 'page') {
-            $page = Page::find($id);
-        } elseif ($type === 'component') {
-            $page = Component::find($id);
-        } elseif ($type === 'collection') {
-            $page = Collection::find($id);
-        } elseif ($type === 'form') {
-            $page = Form::find($id);
-        } elseif ($type === 'layout') {
-            $page = Layout::find($id);
+        // Fetch the page using the determined model
+        $page = $Model::find($id);
+
+        // If the collection does not exist, throw an error
+        if (!$page) {
+            throw new ApiError('Elements not found', 404);
         }
 
-        if (!$page) {
-            throw new ApiError('Page not found', 404);
+        // Check if the elements array is empty or doesn't have a 0th element
+        if (!isset($page->elements) || !isset($page->elements[0])) {
+            $this->defaultElement($page, $type . ' Root Element', $type);
+
+            // Save the updated page
+            $page->save();
         }
 
         try {
-
-
-            $page->populatedLayout = $page->populatedLayouts;
-            $page->populatedImage = $page->populatedImages;
-
+            // Prepare the document to be sent to the client
             $doc = $this->prepareDocument($page);
             $doc['type'] = $type;
             $doc['host'] = $host;
 
-            $loaded[$page->_id] = true;
-
-            if ($doc['parent']) {
-                $parent = Collection::find($doc['parent'], ["states"]);
-                if ($parent)
+            if ($page->parent) {
+                $parent = Component::find($page->parent, ["states"]);
+                if ($parent) {
                     $doc['props'] = $parent->states;
+                }
             }
-
-
 
             $streamCallback(json_encode($doc) . "\n");
 
-            $collectionId = $doc['attached'];
+            // Initialize an object to keep track of loaded collections
+            $loaded[$page->_id] = true;
 
-            if ($collectionId)
+            $collectionId = $page->attached;
+            if ($collectionId) {
                 $this->loadFullCollection($collectionId, $loaded, $streamCallback);
+            }
 
-            $components = $doc['components'] ?? [];
+            $components = $page->components ?? [];
             $this->loadFullComponents($components, $loaded, $streamCallback);
 
-            $forms = $doc['forms'] ?? [];
+            $forms = $page->forms ?? [];
             $this->loadFullForms($forms, $loaded, $streamCallback);
 
             // End the stream
@@ -440,6 +440,48 @@ class SettingServices
         }
     }
 
+    /**
+     * Default element creation method
+     *
+     * @param $page
+     * @param string $name
+     * @param string $type
+     */
+    private function defaultElement(&$page, $name, $type)
+    {
+        $id = Str::random(7);
+        $className = "ac-elem-{$type}-root-{$id}";
+        $styleUid = Str::random(7);
+
+        $styles = [
+            $styleUid => [
+                '_uid' => $styleUid,
+                'selectorText' => ".{$className}",
+                'type' => 'div',
+                'style' => [],
+            ],
+        ];
+
+        $elements = [
+            0 => [
+                '_uid' => '0',
+                'tagName' => 'div',
+                'type' => 'layout',
+                'name' => $name,
+                'layout' => 'root',
+                'nodeValue' => '',
+                'childNodes' => [],
+                'selector' => ".{$className}",
+                'className' => $className,
+                'styleUid' => $styleUid,
+            ],
+        ];
+
+        $page->styles = $styles;
+        $page->_styles = $styles;
+        $page->elements = $elements;
+        $page->_elements = $elements;
+    }
     /**
      * Recursively loads and streams the components and their dependencies.
      *

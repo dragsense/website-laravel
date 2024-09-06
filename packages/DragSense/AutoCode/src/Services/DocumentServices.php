@@ -395,7 +395,7 @@ class DocumentServices
      * Retrieve the model instance based on the collection slug.
      *
      * @param string $slug
-     * @return Model
+     * @return "Model"
      */
     private function getDocumentModel(string $slug)
     {
