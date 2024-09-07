@@ -9,7 +9,6 @@ class StoreSettingRequest extends FormRequest{
     public function rules()
     {
 
-        \Log::info(request()->all());
         return [
             'webTitle' => 'string|min:3',
             'tagLine' => 'string|nullable',

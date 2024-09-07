@@ -2,6 +2,7 @@
 
 namespace DragSense\AutoCode\Services;
 
+use Config;
 use DB;
 use DragSense\AutoCode\Models\Media;
 use DragSense\AutoCode\Models\Form;
@@ -339,298 +340,374 @@ class FormServices
     }
 
 
-/**
- * Submits a form, handling files, validation, email sending, and recording.
- *
- * @param int $id The ID of the form to submit.
- * @param array &$files Uploaded files.
- * @param array &$states Form states.
- * @param string $host The host URL for generating file paths.
- * @return void
- * @throws ApiError If an unexpected error occurs.
- */
-public function submitForm($id, &$files, &$states, $host)
-{
-    // Validate the form and its states
-    $form = $this->validateForm($id);
-    $formStates = $this->validateStates($form, $states);
+    /**
+     * Submits a form, handling files, validation, email sending, and recording.
+     *
+     * @param int $id The ID of the form to submit.
+     * @param array &$files Uploaded files.
+     * @param array &$states Form states.
+     * @param string $host The host URL for generating file paths.
+     * @return void
+     * @throws ApiError If an unexpected error occurs.
+     */
+    public function submitForm($id, &$files, &$states, $host)
+    {
+        // Validate the form and its states
+        $form = $this->validateForm($id);
+        $formStates = $this->validateStates($form, $states);
 
-    // Handle files if any are uploaded
-    $attachments = $this->handleFiles($files, $formStates, $host);
+        // Handle files if any are uploaded
+        $attachments = $this->handleFiles($files, $formStates, $host);
 
-    try {
-        // Send an email if the form is not marked as record-only
-        if (!$form->recordOnly) {
-            $this->sendEmail($form, $formStates, $attachments);
-        }
-
-        // Record the form data or clean up temporary files
-        if ($form->record || $form->recordOnly) {
-            $this->recordForm($form, $formStates);
-        } else {
-            $this->cleanUpTempFiles($attachments);
-        }
-    } catch (Exception $e) {
-        // Handle exceptions, log the error, and clean up temporary files
-        error_log('An unexpected error occurred: ' . $e->getMessage());
-        $this->cleanUpTempFiles($attachments);
-        throw new ApiError('An unexpected error occurred', 500);
-    }
-}
-
-/**
- * Validates the existence of the form by ID.
- *
- * @param int $id The ID of the form.
- * @return Form The form object.
- * @throws ApiError If the form is not found.
- */
-protected function validateForm($id)
-{
-    $form = Form::find($id);
-    if (!$form) {
-        throw new ApiError('Form not found', 404);
-    }
-    return $form;
-}
-
-/**
- * Validates the states of the form against the form's requirements.
- *
- * @param Form $form The form object.
- * @param array $states The submitted form states.
- * @return array The validated form states.
- * @throws ApiError If validation fails.
- */
-protected function validateStates($form, $states)
-{
-    $formStates = $form->states;
-    $isValid = true;
-
-    foreach ($formStates as $key => $stateData) {
-        if ($stateData['type'] !== 'file') {
-            $fieldData = $states[$key] ?? null;
-            $regexTest = true;
-
-            if (!empty($stateData['regex'])) {
-                $regex = '/' . trim($stateData['regex'], '/') . '/';
-                $regexTest = preg_match($regex, $fieldData);
+        try {
+            // Send an email if the form is not marked as record-only
+            if (!$form->recordOnly) {
+                $this->sendEmail($form, $formStates, $attachments);
             }
 
-            if (($stateData['required'] && !$fieldData) || !$regexTest) {
-                $stateData['error'] = 1;
-                $isValid = false;
+            // Record the form data or clean up temporary files
+            if ($form->record || $form->recordOnly) {
+                $this->recordForm($form, $formStates);
             } else {
-                $stateData['error'] = 0;
-                $formStates[$key]['defaultValue'] = $fieldData;
+                $this->cleanUpTempFiles($attachments);
             }
+        } catch (Exception $e) {
+            // Handle exceptions, log the error, and clean up temporary files
+            error_log('An unexpected error occurred: ' . $e->getMessage());
+            $this->cleanUpTempFiles($attachments);
+            throw new ApiError('An unexpected error occurred', 500);
         }
     }
 
-    if (!$isValid) {
-        throw new ApiError('Something Went Wrong.', 403);
+    /**
+     * Validates the existence of the form by ID.
+     *
+     * @param int $id The ID of the form.
+     * @return Form The form object.
+     * @throws ApiError If the form is not found.
+     */
+    protected function validateForm($id)
+    {
+        $form = Form::find($id);
+        if (!$form) {
+            throw new ApiError('Form not found', 404);
+        }
+        return $form;
     }
 
-    return $formStates;
-}
+    /**
+     * Validates the states of the form against the form's requirements.
+     *
+     * @param Form $form The form object.
+     * @param array $states The submitted form states.
+     * @return array The validated form states.
+     * @throws ApiError If validation fails.
+     */
+    protected function validateStates($form, $states)
+    {
+        $formStates = $form->states;
+        $isValid = true;
 
-/**
- * Handles the uploaded files, storing them and updating form states.
- *
- * @param array $files The uploaded files.
- * @param array &$formStates The form states to update.
- * @param string $host The host URL for generating file paths.
- * @return array The list of attachments.
- * @throws ApiError If an unexpected error occurs.
- */
-protected function handleFiles($files, &$formStates, $host)
-{
-    $attachments = [];
+        foreach ($formStates as $key => $stateData) {
+            if ($stateData['type'] !== 'file') {
+                $fieldData = $states[$key] ?? null;
+                $regexTest = true;
 
-    try {
-        foreach ($files as $file) {
-            $type = $this->determineFileType($file->getMimeType());
-            $key = pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME);
-            $uploadPath = "public/static/uploads/{$type}";
+                if (!empty($stateData['regex'])) {
+                    $regex = '/' . trim($stateData['regex'], '/') . '/';
+                    $regexTest = preg_match($regex, $fieldData);
+                }
 
-            // Ensure the upload directory exists
-            if (!File::exists(storage_path('app/' . $uploadPath))) {
-                File::makeDirectory(storage_path('app/' . $uploadPath), 0755, true);
-            }
-
-            // Store the file and create media record
-            $filename = $file->hashName();
-            $file->storeAs($uploadPath, $filename);
-            $media = $this->mediaServices->createMedia($file, $type, $uploadPath . "/" . $filename);
-
-            if (isset($formStates[$key])) {
-                $formStates[$key]['fileType'] = $type;
-                $formStates[$key]['defaultValue'] = $media->src;
-                $formStates[$key]['src'] = [
-                    '_id' => $media->_id,
-                    'src' => $media->src
-                ];
-
-                $attachments[] = [
-                    'filename' => $file->getClientOriginalName(),
-                    'path' => "https://fdb4-39-52-18-102.ngrok-free.app" . $media->src,
-                    'id' => $media->_id
-                ];
-            }
-        }
-    } catch (Exception $e) {
-        $this->cleanUpTempFiles($attachments);
-        error_log('An unexpected error occurred: ' . $e->getMessage());
-        throw new ApiError('An unexpected error occurred', 500);
-    }
-
-    return $attachments;
-}
-
-/**
- * Sends an email with the form data and attachments.
- *
- * @param Form $form The form object.
- * @param array $formStates The form states.
- * @param array $attachments The file attachments.
- * @return void
- */
-protected function sendEmail($form, $formStates, $attachments)
-{
-    $setting = $this->settingServices->getSettings();
-
-    $from = $form->setting['from'] ?? $setting->email['from'] ?? env("MAIL_FROM_ADDRESS");
-    $to = $form->setting['to'] ?? $setting->email['to'];
-    $cc = $form->setting['cc'] ?? $setting->email['cc'];
-    $bcc = $form->setting['bcc'] ?? $setting->email['bcc'];
-    $replyTo = $form->setting['replyTo'] ?? $setting->email['replyTo'];
-    $subject = $form->setting['subject'] ?? $setting->email['subject'] ?? "Untitled Email // " . env("MAIL_FROM_NAME");
-
-    if ($from && $to) {
-        $emailContent = $this->compileEmailContent($form);
-
-        $content = $form->emailbody['html'] ? $emailContent['html'] : $emailContent['plain'];
-
-        foreach ($formStates as $key => $value) {
-            $content = str_replace("{{{$key}}}", $value['defaultValue'], $content);
-            $subject = str_replace("{{{$key}}}", $value['defaultValue'], $subject);
-        }
-
-        if (isset($formStates['email']) && !empty($form->setting['sendCopy']) && filter_var($formStates['email'], FILTER_VALIDATE_EMAIL)) {
-            $to .= ',' . $formStates['email'];
-        }
-
-        $emailData = [
-            'from' => $from,
-            'to' => $to,
-            'subject' => $subject,
-            'html' => $form->emailbody['html'] ? $content : null,
-            'text' => $form->emailbody['plain'] ? $content : null,
-            'cc' => $cc,
-            'bcc' => $bcc,
-            'replyTo' => $replyTo,
-            'attachments' => $attachments,
-        ];
-
-        app('mailer')->send([], [], function ($message) use ($emailData) {
-            $message->from($emailData['from'])
-                ->to($emailData['to'])
-                ->subject($emailData['subject']);
-
-            if (!empty($emailData['cc'])) {
-                $message->cc($emailData['cc']);
-            }
-
-            if (!empty($emailData['bcc'])) {
-                $message->bcc($emailData['bcc']);
-            }
-
-            if (!empty($emailData['replyTo'])) {
-                $message->replyTo($emailData['replyTo']);
-            }
-
-            if ($emailData['html']) {
-                $message->html($emailData['html']);
-            } elseif ($emailData['text']) {
-                $message->text($emailData['text']);
-            }
-
-            if (!empty($emailData['attachments'])) {
-                foreach ($emailData['attachments'] as $attachment) {
-                    $message->attach($attachment['path']);
+                if (($stateData['required'] && !$fieldData) || !$regexTest) {
+                    $stateData['error'] = 1;
+                    $isValid = false;
+                } else {
+                    $stateData['error'] = 0;
+                    $formStates[$key]['defaultValue'] = $fieldData;
                 }
             }
-        });
-    }
-}
+        }
 
-/**
- * Records the form data into the document service.
- *
- * @param Form $form The form object.
- * @param array $formStates The form states.
- * @return void
- */
-protected function recordForm($form, $formStates)
-{
-    $uniqueId = Str::uuid()->toString();
-    $body = [
-        'name' => $form->name . ' ' . now()->toDateString(),
-        'slug' => 'form_' . $uniqueId,
-        'states' => $formStates,
-        'coll' => [
-            '_id' => $form->_id,
-            'slug' => $form->slug,
-        ],
-    ];
+        if (!$isValid) {
+            throw new ApiError('Something Went Wrong.', 403);
+        }
 
-    $this->documentServices->createDocument($form->_id, true, $body);
-}
-
-/**
- * Cleans up temporary files after processing.
- *
- * @param array $attachments The list of attachments to clean up.
- * @return void
- */
-protected function cleanUpTempFiles($attachments)
-{
-    foreach ($attachments as $attachment) {
-        $this->mediaServices->deleteMedia($attachment['id']);
-    }
-}
-
-/**
- * Determines the file type based on its MIME type.
- *
- * @param string $mimetype The MIME type of the file.
- * @return string The determined file type.
- */
-protected function determineFileType($mimetype)
-{
-    $type = 'docs';
-    if (Str::startsWith($mimetype, 'image')) {
-        $type = 'images';
-    } elseif (Str::startsWith($mimetype, 'video')) {
-        $type = 'videos';
-    } elseif (Str::startsWith($mimetype, 'audio')) {
-        $type = 'audios';
+        return $formStates;
     }
 
-    return $type;
-}
+    /**
+     * Handles the uploaded files, storing them and updating form states.
+     *
+     * @param array $files The uploaded files.
+     * @param array &$formStates The form states to update.
+     * @param string $host The host URL for generating file paths.
+     * @return array The list of attachments.
+     * @throws ApiError If an unexpected error occurs.
+     */
+    protected function handleFiles($files, &$formStates, $host)
+    {
+        $attachments = [];
 
-/**
- * Compiles the email content from the form's email body.
- *
- * @param Form $form The form object.
- * @return array The compiled email content.
- */
-protected function compileEmailContent($form)
-{
-    $plain = $form->emailbody['plain'] ?? 'Undefined';
+        try {
+            foreach ($files as $file) {
+                $type = $this->determineFileType($file->getMimeType());
+                $key = pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME);
+                $uploadPath = "public/static/uploads/{$type}";
 
-    $compiledTemplate = "<!DOCTYPE html>
+                if (isset($formStates[$key])) {
+
+
+                    if (!File::exists(storage_path('app/' . $uploadPath))) {
+                        File::makeDirectory(storage_path('app/' . $uploadPath), 0755, true);
+                    }
+
+                    // Store the file and create media record
+                    $filename = $file->hashName();
+                    $file->storeAs($uploadPath, $filename);
+                    $media = $this->mediaServices->createMedia($file, $type, $uploadPath . "/" . $filename);
+
+                    $formStates[$key]['fileType'] = $type;
+                    $formStates[$key]['defaultValue'] = $media->src;
+                    $formStates[$key]['src'] = [
+                        '_id' => $media->_id,
+                        'src' => $media->src
+                    ];
+
+                    $attachments[] = [
+                        'filename' => $file->getClientOriginalName(),
+                        'mime' => $file->getMimeType(),
+                        'path' => storage_path('app/' . $uploadPath) . "/" . $filename,
+                        'id' => $media->_id,
+
+                    ];
+                }
+            }
+        } catch (Exception $e) {
+            $this->cleanUpTempFiles($attachments);
+            error_log('An unexpected error occurred: ' . $e->getMessage());
+            throw new ApiError('An unexpected error occurred', 500);
+        }
+
+        return $attachments;
+    }
+
+    /**
+     * Sends an email with the form data and attachments.
+     *
+     * @param Form $form The form object.
+     * @param array $formStates The form states.
+     * @param array $attachments The file attachments.
+     * @return void
+     */
+    protected function sendEmail($form, $formStates, $attachments)
+    {
+        $setting = $this->settingServices->getSettings(); // Ensure $setting is an array
+
+        // Check if 'email' exists in $setting before accessing its keys, otherwise fallback to .env values
+        $emailSettings = $form->setting ?? $setting['email'] ?? [];
+
+
+        $from = $emailSettings['from'] ?? env("MAIL_FROM_ADDRESS");
+        $to = $emailSettings['to'] ?? env("MAIL_TO_ADDRESS");
+        $cc = $emailSettings['cc'] ?? env("MAIL_CC_ADDRESS");
+        $bcc = $emailSettings['bcc'] ?? env("MAIL_BCC_ADDRESS");
+        $replyTo = $emailSettings['replyTo'] ?? env("MAIL_REPLY_TO_ADDRESS");
+        $subject = $emailSettings['subject'] ?? "Untitled Email // " . env("MAIL_FROM_NAME");
+
+
+        $emailSettings = $setting['email'] ?? [];
+
+
+        // Email host and port settings
+        $mailHost = $emailSettings['host'] ?? env("MAIL_HOST");
+        $mailPort = $emailSettings['port'] ?? env("MAIL_PORT");
+        $mailSecure = $emailSettings['secure'] ? 'tls' : env("MAIL_ENCRYPTION"); // Use 'tls' or 'ssl' for secure transport
+        $ignoreTLS = $emailSettings['ignoreTLS'] ?? false;
+
+        // Authentication details
+        $mailUser = $emailSettings['auth']['user'] ?? env("MAIL_USERNAME");
+        $mailPass = $emailSettings['auth']['pass'] ?? env("MAIL_PASSWORD");
+
+
+        // Ensure $to is not null before proceeding
+        if ($from && $to) {
+            // Store the original mail config before changing them
+            $originalMailConfig = [
+                'host' => config('mail.mailers.smtp.host'),
+                'port' => config('mail.mailers.smtp.port'),
+                'encryption' => config('mail.mailers.smtp.encryption'),
+                'username' => config('mail.mailers.smtp.username'),
+                'password' => config('mail.mailers.smtp.password'),
+                'stream' => config('mail.mailers.smtp.stream'),
+            ];
+
+            // Set mail configuration dynamically using config() helper
+            config(['mail.mailers.smtp.host' => $mailHost]);
+            config(['mail.mailers.smtp.port' => $mailPort]);
+            config(['mail.mailers.smtp.encryption' => $mailSecure]);
+            config(['mail.mailers.smtp.username' => $mailUser]);
+            config(['mail.mailers.smtp.password' => $mailPass]);
+
+            // Optionally adjust stream options if TLS should be ignored
+            if ($ignoreTLS) {
+                config([
+                    'mail.mailers.smtp.stream' => [
+                        'ssl' => [
+                            'allow_self_signed' => true,
+                            'verify_peer' => false,
+                        ],
+                    ]
+                ]);
+            }
+
+            // Compile email content
+            $emailContent = $this->compileEmailContent($form);
+
+            // Set email content (HTML or plain text)
+            $content = $form->emailbody['html'] ? $emailContent['html'] : $emailContent['plain'];
+
+            // Replace placeholders in the email content and subject with actual form states
+            foreach ($formStates as $key => $value) {
+                $content = str_replace("{{{$key}}}", $value['defaultValue'] ?? '', $content);
+                $subject = str_replace("{{{$key}}}", $value['defaultValue'] ?? '', $subject);
+            }
+
+            // Optionally send a copy to the user's email if provided
+            if (isset($formStates['email']) && !empty($form->setting['sendCopy']) && filter_var($formStates['email'], FILTER_VALIDATE_EMAIL)) {
+                $to .= ',' . $formStates['email'];
+            }
+
+            // Set up the email data
+            $emailData = [
+                'from' => $from,
+                'to' => $to,
+                'subject' => $subject,
+                'html' => $form->emailbody['html'] ? $content : null,
+                'text' => $form->emailbody['plain'] ? $content : null,
+                'cc' => $cc,
+                'bcc' => $bcc,
+                'replyTo' => $replyTo,
+                'attachments' => $attachments,
+            ];
+
+
+
+            // Send the email
+            app('mailer')->send([], [], function ($message) use ($emailData) {
+                $message->from($emailData['from'])
+                    ->to($emailData['to'])
+                    ->subject($emailData['subject']);
+
+                if (!empty($emailData['cc'])) {
+                    $message->cc($emailData['cc']);
+                }
+
+                if (!empty($emailData['bcc'])) {
+                    $message->bcc($emailData['bcc']);
+                }
+
+                if (!empty($emailData['replyTo'])) {
+                    $message->replyTo($emailData['replyTo']);
+                }
+
+                if ($emailData['html']) {
+                    $message->html($emailData['html']);
+                } elseif ($emailData['text']) {
+                    $message->text($emailData['text']);
+                }
+
+                if (!empty($emailData['attachments'])) {
+                    foreach ($emailData['attachments'] as $attachment) {
+                        $message->attach(
+                            $attachment['path'], 
+                            [
+                               'as' => $attachment['filename'],
+                               'mime' => $attachment['mime']
+                             ] 
+                        );
+                    }
+                }
+            });
+
+            // Reset mail configuration to original values after sending the email
+            config(['mail.mailers.smtp.host' => $originalMailConfig['host']]);
+            config(['mail.mailers.smtp.port' => $originalMailConfig['port']]);
+            config(['mail.mailers.smtp.encryption' => $originalMailConfig['encryption']]);
+            config(['mail.mailers.smtp.username' => $originalMailConfig['username']]);
+            config(['mail.mailers.smtp.password' => $originalMailConfig['password']]);
+            config(['mail.mailers.smtp.stream' => $originalMailConfig['stream']]);
+
+
+        }
+    }
+
+    /**
+     * Records the form data into the document service.
+     *
+     * @param Form $form The form object.
+     * @param array $formStates The form states.
+     * @return void
+     */
+    protected function recordForm($form, $formStates)
+    {
+        $uniqueId = Str::uuid()->toString();
+        $body = [
+            'name' => $form->name . ' ' . now()->toDateString(),
+            'slug' => 'form_' . $uniqueId,
+            'states' => $formStates,
+            'coll' => [
+                '_id' => $form->_id,
+                'slug' => $form->slug,
+            ],
+        ];
+
+        $this->documentServices->createDocument($form->_id, true, $body);
+    }
+
+    /**
+     * Cleans up temporary files after processing.
+     *
+     * @param array $attachments The list of attachments to clean up.
+     * @return void
+     */
+    protected function cleanUpTempFiles($attachments)
+    {
+        foreach ($attachments as $attachment) {
+            $this->mediaServices->deleteMedia($attachment['id']);
+        }
+    }
+
+    /**
+     * Determines the file type based on its MIME type.
+     *
+     * @param string $mimetype The MIME type of the file.
+     * @return string The determined file type.
+     */
+    protected function determineFileType($mimetype)
+    {
+        $type = 'docs';
+        if (Str::startsWith($mimetype, 'image')) {
+            $type = 'images';
+        } elseif (Str::startsWith($mimetype, 'video')) {
+            $type = 'videos';
+        } elseif (Str::startsWith($mimetype, 'audio')) {
+            $type = 'audios';
+        }
+
+        return $type;
+    }
+
+    /**
+     * Compiles the email content from the form's email body.
+     *
+     * @param Form $form The form object.
+     * @return array The compiled email content.
+     */
+    protected function compileEmailContent($form)
+    {
+        $plain = $form->emailbody['plain'] ?? 'Undefined';
+
+        $compiledTemplate = "<!DOCTYPE html>
     <html>
         <head>
             <meta charset=\"UTF-8\">
@@ -641,11 +718,11 @@ protected function compileEmailContent($form)
             {$form->emailbody['footer']}
         </body>
     </html>";
-    return [
-        'html' => $compiledTemplate,
-        'plain' => $plain,
-    ];
-}
+        return [
+            'html' => $compiledTemplate,
+            'plain' => $plain,
+        ];
+    }
 
 
 }

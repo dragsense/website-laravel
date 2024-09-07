@@ -314,7 +314,6 @@ class CollectionServices
 
             $tableName = 'ac_' . $pluralSlug;
 
-            Log::info($tableName);
             // Delete the table associated with the collection
             $deleted = DB::statement("DROP TABLE IF EXISTS `{$tableName}`");
 

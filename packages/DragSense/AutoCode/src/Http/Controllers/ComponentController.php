@@ -43,7 +43,6 @@ class ComponentController extends Controller
     public function getPaths(): JsonResponse
     {
         $paths = $this->componentServices->getPaths();
-        \Log::info($paths);
 
         return response()->json(['paths' => $paths]);
     }
