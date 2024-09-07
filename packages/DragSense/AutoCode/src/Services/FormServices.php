@@ -371,6 +371,9 @@ class FormServices
             } else {
                 $this->cleanUpTempFiles($attachments);
             }
+
+            return $form->setting;
+
         } catch (Exception $e) {
             // Handle exceptions, log the error, and clean up temporary files
             error_log('An unexpected error occurred: ' . $e->getMessage());

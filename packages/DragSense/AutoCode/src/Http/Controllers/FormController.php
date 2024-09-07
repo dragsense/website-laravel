@@ -252,9 +252,9 @@ class FormController extends Controller
         $fullhost = "{$protocol}://{$host}";
 
         // Process the form submission using the form service
-        $this->formServices->submitForm($id, $files, $states, $fullhost);
+        $setting = $this->formServices->submitForm($id, $files, $states, $fullhost);
 
         // Send a response with a status of true
-        return response()->json(['status' => true], 201);
+        return response()->json(['status' => true, 'setting' => $setting], 201);
     }
 }
