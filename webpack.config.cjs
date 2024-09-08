@@ -32,6 +32,9 @@ module.exports = {
     resolve: {
         extensions: ['.js', '.jsx'],
     },
+    externals: {
+        'react' : 'React',
+      },
     optimization: {
         minimizer: [
             new TerserPlugin(),

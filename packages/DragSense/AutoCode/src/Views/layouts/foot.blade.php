@@ -19,11 +19,16 @@
         'remainingSlug' => $remainingSlug,
     ]) !!};
 </script>
-
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mathjs/13.1.1/math.min.js" integrity="sha512-g9Hl9sW0nMwhkRPakKcrKyxx6NMT/vD/zu7nhggnjI9as96SdYA/KocpFXxJ1TXFZN9ki0Bv1G7NPchjiSE2VQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <script src="/autocode/autocode-custom-index.js"></script>
 {!! $footerScripts !!}
 {!! $pageFooterScripts !!}
 <script src="/autocode/autocode-app-client.js"></script> 
+<script>
+    window.react = window.React;
+</script>
 <script src="/autocode/autocode-client.js"></script> 
 
 @endsection
